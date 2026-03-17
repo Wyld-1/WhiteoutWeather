@@ -22,7 +22,7 @@ struct DailyForecast: Identifiable {
     let shortForecast: String
     let detailedForecast: String
     let snowAccumulation: String?
-    let isRain: Bool
+    let isRain: Bool              // Contextual: shows drop vs snowflake
     
     let daySymbol: String
     let nightSymbol: String?
@@ -49,7 +49,7 @@ struct SunEvent {
     var nextTime: Date { Date() < sunrise ? sunrise : sunset }
 }
 
-// MARK: - 2. Data Transfer Objects (DTOs)
+// MARK: - 2. DTOs (Open-Meteo)
 
 struct OpenMeteoResponse: Decodable {
     let utcOffsetSeconds: Int?
@@ -63,15 +63,9 @@ struct OpenMeteoResponse: Decodable {
     }
 
     struct CurrentBlock: Decodable {
-        let time: String?
-        let temperature2m: Double?
-        let relativeHumidity2m: Double?
-        let windSpeed10m: Double?
-        let windGusts10m: Double?
-        let windDirection10m: Double?
-        let weatherCode: Int?
-        let isDay: Int?
-        
+        let time: String?; let temperature2m: Double?; let relativeHumidity2m: Double?
+        let windSpeed10m: Double?; let windGusts10m: Double?; let windDirection10m: Double?
+        let weatherCode: Int?; let isDay: Int?
         enum CodingKeys: String, CodingKey {
             case time, weatherCode = "weather_code", isDay = "is_day"
             case temperature2m = "temperature_2m", relativeHumidity2m = "relative_humidity_2m"
@@ -80,26 +74,17 @@ struct OpenMeteoResponse: Decodable {
     }
 
     struct HourlyBlock: Decodable {
-        let time: [String]?
-        let temperature2m: [Double]?
-        let weatherCode: [Int]?
+        let time: [String]?; let temperature2m: [Double]?; let weatherCode: [Int]?
         let precipitationProbability: [Int]?
-        
         enum CodingKeys: String, CodingKey {
-            case time, weatherCode = "weather_code"
-            case temperature2m = "temperature_2m", precipitationProbability = "precipitation_probability"
+            case time, weatherCode = "weather_code", temperature2m = "temperature_2m", precipitationProbability = "precipitation_probability"
         }
     }
 
     struct DailyBlock: Decodable {
-        let time: [String]?
-        let weatherCode: [Int]?
-        let temperature2mMax: [Double?]?
-        let temperature2mMin: [Double?]?
-        let precipitationProbabilityMax: [Int?]?
-        let sunrise: [String]?
-        let sunset: [String]?
-        
+        let time: [String]?; let weatherCode: [Int]?; let temperature2mMax: [Double?]?
+        let temperature2mMin: [Double?]? ; let precipitationProbabilityMax: [Int?]?
+        let sunrise: [String]?; let sunset: [String]?
         enum CodingKeys: String, CodingKey {
             case time, weatherCode = "weather_code", sunrise, sunset
             case temperature2mMax = "temperature_2m_max", temperature2mMin = "temperature_2m_min"
@@ -117,7 +102,6 @@ actor WeatherRepository {
     func fetchAll(lat: Double, lon: Double) async throws -> (CurrentConditions, [DailyForecast], SunEvent) {
         async let omTask = OpenMeteoClient.shared.fetch(lat: lat, lon: lon)
         async let noaaTask = NOAAScraper.shared.fetchProse(lat: lat, lon: lon)
-        
         let (om, noaa) = try await (omTask, noaaTask)
         
         let current = CurrentConditions(
@@ -146,22 +130,14 @@ actor WeatherRepository {
         
         var dailyModels: [DailyForecast] = []
         let cal = Calendar.current
-        
         if let dTime = om.daily?.time {
             for i in 0..<dTime.count {
                 let dateKey = dTime[i]
                 let date = parseOMDate(dateKey)
                 let noaaData = noaa[dateKey]
-                
                 let dayCode = om.daily?.weatherCode?[i] ?? 0
-                let daySymbol = wmoSFSymbol(code: dayCode, isDay: true)
                 
-                var nightSymbol: String? = nil
-                if noaaData?.isNightSevere == true {
-                    nightSymbol = wmoSFSymbol(code: dayCode, isDay: false)
-                }
-                
-                // Authority check: Use NOAA precip % if found, else fall back to OpenMeteo
+                // Priority logic: Use NOAA precip chance if we found it in the text
                 let finalPrecip = noaaData?.precipChance ?? (om.daily?.precipitationProbabilityMax?[i] ?? 0)
                 
                 dailyModels.append(DailyForecast(
@@ -173,8 +149,8 @@ actor WeatherRepository {
                     detailedForecast: noaaData?.prose ?? "No detailed forecast available.",
                     snowAccumulation: noaaData?.accumulation,
                     isRain: noaaData?.isRain ?? false,
-                    daySymbol: daySymbol,
-                    nightSymbol: nightSymbol,
+                    daySymbol: wmoSFSymbol(code: dayCode, isDay: true),
+                    nightSymbol: noaaData?.isNightSevere == true ? wmoSFSymbol(code: dayCode, isDay: false) : nil,
                     hourlyTemps: allHourly.filter { cal.isDate($0.time, inSameDayAs: date) }
                 ))
             }
@@ -184,7 +160,6 @@ actor WeatherRepository {
             sunrise: isoFormatter.date(from: (om.daily?.sunrise?.first ?? "") + ":00Z") ?? Date(),
             sunset: isoFormatter.date(from: (om.daily?.sunset?.first ?? "") + ":00Z") ?? Date()
         )
-        
         return (current, dailyModels, sun)
     }
     
@@ -193,50 +168,21 @@ actor WeatherRepository {
     }
 }
 
-// MARK: - 4. Network Clients
-
-actor OpenMeteoClient {
-    static let shared = OpenMeteoClient()
-    private let session = URLSession(configuration: .default)
-
-    func fetch(lat: Double, lon: Double) async throws -> OpenMeteoResponse {
-        var comps = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
-        comps.queryItems = [
-            .init(name: "latitude", value: "\(lat)"),
-            .init(name: "longitude", value: "\(lon)"),
-            .init(name: "temperature_unit", value: "fahrenheit"),
-            .init(name: "wind_speed_unit", value: "mph"),
-            .init(name: "timezone", value: "auto"),
-            .init(name: "forecast_days", value: "11"),
-            .init(name: "current", value: "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,weather_code,is_day"),
-            .init(name: "hourly", value: "temperature_2m,weather_code,precipitation_probability"),
-            .init(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset")
-        ]
-        let (data, _) = try await session.data(from: comps.url!)
-        return try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
-    }
-}
+// MARK: - 4. NOAA Scraper
 
 actor NOAAScraper {
     static let shared = NOAAScraper()
-    
     struct ScrapedPeriod {
-        let condition: String
-        let prose: String
-        let accumulation: String?
-        let isRain: Bool
-        let isNightSevere: Bool
-        let precipChance: Int?
+        let condition: String; let prose: String; let accumulation: String?
+        let isRain: Bool; let isNightSevere: Bool; let precipChance: Int?
     }
 
     func fetchProse(lat: Double, lon: Double) async throws -> [String: ScrapedPeriod] {
         let url = URL(string: "https://forecast.weather.gov/MapClick.php?lat=\(lat)&lon=\(lon)")!
         var req = URLRequest(url: url)
         req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
-        
         let (data, _) = try await URLSession.shared.data(for: req)
         guard let html = String(data: data, encoding: .utf8) else { return [:] }
-        
         let doc = try SwiftSoup.parse(html)
         let rows = try doc.select("#detailed-forecast-body .row-forecast")
         
@@ -252,9 +198,10 @@ actor NOAAScraper {
             let lowerText = text.lowercased()
             let isNight = lowerLabel.contains("night") || lowerLabel.contains("tonight")
             
+            // Advance cursor if NOAA day-name doesn't match cursor day-name
             if !isNight {
-                let expectedDayName = dayFormatter.string(from: cursor).lowercased()
-                if !lowerLabel.contains(expectedDayName) {
+                let expected = dayFormatter.string(from: cursor).lowercased()
+                if !lowerLabel.contains(expected) {
                     cursor = cal.date(byAdding: .day, value: 1, to: cursor)!
                 }
             }
@@ -264,11 +211,9 @@ actor NOAAScraper {
             let isRain = lowerText.contains("precipitation") || lowerText.contains("rainfall") || lowerText.contains("rain")
             let precipChance = extractPrecipChance(from: text)
             
-            // False positive fix: Only trigger severe icon if accumulation is significant
+            // Severe logic: ignore tiny amounts to avoid false positives
             let isSignificant = accum != nil && !accum!.contains("<1") && !accum!.contains("0.1")
-            let currentPeriodIsSevere = isNight && (lowerText.contains("thunder") ||
-                                                  (lowerText.contains("heavy") && isSignificant) ||
-                                                  (lowerText.contains("snow") && isSignificant))
+            let isSevere = isNight && (lowerText.contains("thunder") || (lowerText.contains("heavy") && isSignificant) || (lowerText.contains("snow") && isSignificant))
             
             if let existing = result[key] {
                 result[key] = ScrapedPeriod(
@@ -276,18 +221,11 @@ actor NOAAScraper {
                     prose: existing.prose + "\n\n\(label): \(text)",
                     accumulation: existing.accumulation ?? accum,
                     isRain: existing.isRain || isRain,
-                    isNightSevere: existing.isNightSevere || currentPeriodIsSevere,
+                    isNightSevere: existing.isNightSevere || isSevere,
                     precipChance: precipChance ?? existing.precipChance
                 )
             } else {
-                result[key] = ScrapedPeriod(
-                    condition: label,
-                    prose: "\(label): \(text)",
-                    accumulation: accum,
-                    isRain: isRain,
-                    isNightSevere: currentPeriodIsSevere,
-                    precipChance: precipChance
-                )
+                result[key] = ScrapedPeriod(condition: label, prose: "\(label): \(text)", accumulation: accum, isRain: isRain, isNightSevere: isSevere, precipChance: precipChance)
             }
         }
         return result
@@ -307,33 +245,41 @@ actor NOAAScraper {
 
     private func extractAccumulation(from text: String) -> String? {
         let lower = text.lowercased()
-        // 1. Handle fractions
         if lower.contains("amounts between") {
             if lower.contains("quarter and half") { return "0.25–0.5\"" }
             if lower.contains("tenth and a quarter") { return "0.1–0.25\"" }
             if lower.contains("half and three quarters") { return "0.5–0.75\"" }
         }
-        // 2. Handle "less than"
         if lower.contains("less than one inch") || lower.contains("less than an inch") { return "<1\"" }
-        
-        // 3. Handle numeric ranges
         let pattern = #"([0-9]+(?:\.[0-9]+)?)(?:\s+to\s+([0-9]+(?:\.[0-9]+)?))?\s*inch"#
         if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
            let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
-            let firstValue = (text as NSString).substring(with: match.range(at: 1))
-            let secondRange = match.range(at: 2)
-            if secondRange.location != NSNotFound {
-                let secondValue = (text as NSString).substring(with: secondRange)
-                return "\(firstValue)–\(secondValue)\""
-            } else {
-                return "\(firstValue)\""
-            }
+            let v1 = (text as NSString).substring(with: match.range(at: 1))
+            let r2 = match.range(at: 2)
+            return r2.location != NSNotFound ? "\(v1)–\((text as NSString).substring(with: r2))\"" : "\(v1)\""
         }
         return nil
     }
 }
 
-// MARK: - Helpers
+actor OpenMeteoClient {
+    static let shared = OpenMeteoClient()
+    func fetch(lat: Double, lon: Double) async throws -> OpenMeteoResponse {
+        var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
+        c.queryItems = [
+            .init(name: "latitude", value: "\(lat)"), .init(name: "longitude", value: "\(lon)"),
+            .init(name: "temperature_unit", value: "fahrenheit"), .init(name: "wind_speed_unit", value: "mph"),
+            .init(name: "timezone", value: "auto"), .init(name: "forecast_days", value: "11"),
+            .init(name: "current", value: "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,weather_code,is_day"),
+            .init(name: "hourly", value: "temperature_2m,weather_code,precipitation_probability"),
+            .init(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset")
+        ]
+        let (data, _) = try await URLSession.shared.data(from: c.url!)
+        return try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
+    }
+}
+
+// MARK: - Helpers (nonisolated for Actor Safety)
 
 nonisolated func wmoDescription(code: Int, isDay: Bool) -> String {
     switch code {
@@ -341,8 +287,7 @@ nonisolated func wmoDescription(code: Int, isDay: Bool) -> String {
     case 2: return "Partly Cloudy"
     case 3: return "Cloudy"
     case 45, 48: return "Fog"
-    case 51...55: return "Drizzle"
-    case 61...65: return "Rain"
+    case 51...65: return "Rain"
     case 71...77: return "Snow"
     case 80...82: return "Showers"
     case 95...99: return "Thunderstorms"
@@ -360,15 +305,7 @@ nonisolated func wmoSFSymbol(code: Int, isDay: Bool) -> String {
     case 71...77: return "cloud.snow.fill"
     case 80...82: return "cloud.heavyrain.fill"
     case 95...99: return "cloud.bolt.rain.fill"
-    default: return "cloud.fill"
-    }
-}
-
-nonisolated func wmoPrecipSymbol(code: Int) -> String {
-    switch code {
-    case 71...77: return "snowflake"
-    case 95...99: return "cloud.bolt.fill"
-    default: return "drop.fill"
+    default: return isDay ? "cloud.sun.fill" : "cloud.moon.fill"
     }
 }
 

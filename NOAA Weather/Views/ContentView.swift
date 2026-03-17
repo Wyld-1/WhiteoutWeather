@@ -12,12 +12,9 @@ internal import _LocationEssentials
 struct ContentView: View {
     @Environment(LocationStore.self) private var store
     @Environment(LocationManager.self) private var locationManager
-    
-    // AnyHashable so we can hold either UUID or the String "add"
     @State private var selectedTab: AnyHashable = AnyHashable(-1)
 
     private var pageCount: Int { 1 + store.saved.count + 1 }
-
     private var currentIndex: Int {
         if selectedTab == AnyHashable(-1) { return 0 }
         if selectedTab == AnyHashable("add") { return pageCount - 1 }
@@ -30,32 +27,22 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                LocationPageView(savedLocation: nil)
-                    .tag(AnyHashable(-1))
-
+                LocationPageView(savedLocation: nil).tag(AnyHashable(-1))
                 ForEach(store.saved) { loc in
-                    LocationPageView(savedLocation: loc)
-                        .tag(AnyHashable(loc.id))
+                    LocationPageView(savedLocation: loc).tag(AnyHashable(loc.id))
                 }
-
                 AddLocationPage(onAdded: {
-                    if let newest = store.saved.last {
-                        selectedTab = AnyHashable(newest.id)
-                    }
-                })
-                .tag(AnyHashable("add"))
+                    if let newest = store.saved.last { selectedTab = AnyHashable(newest.id) }
+                }).tag(AnyHashable("add"))
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
 
-            // Custom page dots
-            PageDotsView(count: pageCount, currentIndex: currentIndex)
-                .padding(.bottom, 8)
+            PageDotsView(count: pageCount, currentIndex: currentIndex).padding(.bottom, 8)
         }
         .onAppear { locationManager.requestLocation() }
     }
 }
-
 // MARK: - Custom Page Dots
 
 struct PageDotsView: View {
@@ -95,42 +82,33 @@ struct AddLocationPage: View {
     @Environment(LocationStore.self) private var store
     var onAdded: (() -> Void)? = nil
     @State private var showSearch = false
+    @State private var isAnimating = false
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color(.systemGray6), Color(.systemBackground)],
-                startPoint: .top, endPoint: .bottom
-            ).ignoresSafeArea()
+            VideoBackgroundView(videoName: "sun").ignoresSafeArea()
+            RadialGradient(stops: [.init(color: .blue.opacity(0.3), location: 0), .init(color: .black.opacity(0.85), location: 0.8)], center: .top, startRadius: 10, endRadius: 600).ignoresSafeArea()
 
-            VStack(spacing: 20) {
+            VStack(spacing: 30) {
                 Spacer()
                 Button { showSearch = true } label: {
                     ZStack {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 72, height: 72)
-                        Image(systemName: "plus")
-                            .font(.system(size: 32, weight: .medium))
-                            .foregroundStyle(.white)
+                        Circle().fill(Color.accentColor).frame(width: 84, height: 84).shadow(color: .accentColor.opacity(0.5), radius: 20)
+                        Image(systemName: "plus").font(.system(size: 36, weight: .light)).foregroundStyle(.white)
                     }
-                }
-                .buttonStyle(.plain)
-
-                Text("Add a Location")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Text("City, zip code, or ski resort")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-
+                }.buttonStyle(.plain)
+                
                 Spacer()
+
+                VStack(spacing: 8) {
+                    Text("Add Location").font(.system(size: 32, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                    Text("Track your local mountains, \ncities, and favorites.").font(.system(size: 17)).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.6))
+                }
+                Spacer(); Spacer()
             }
         }
-        .sheet(isPresented: $showSearch) {
-            LocationSearchView(onAdded: onAdded).environment(store)
-        }
+        .onAppear { withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: false)) { isAnimating = true } }
+        .sheet(isPresented: $showSearch) { LocationSearchView(onAdded: onAdded).environment(store) }
     }
 }
 
@@ -352,7 +330,6 @@ struct DailyRow: View {
     let globalLow: Double
     let globalHigh: Double
     
-    // Extracted formatter for day name
     private var dayName: String {
         let f = DateFormatter(); f.dateFormat = "EEE"
         return f.string(from: day.date)
@@ -360,89 +337,38 @@ struct DailyRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // 1. Day Name
             Text(Calendar.current.isDateInToday(day.date) ? "Today" : dayName)
-                .font(.system(size: 17, weight: .medium)).foregroundStyle(.white)
-                .frame(width: 52, alignment: .leading)
+                .font(.system(size: 17, weight: .medium)).foregroundStyle(.white).frame(width: 52, alignment: .leading)
 
-            // 2. Dual Icons (Content Triggered)
             HStack(spacing: -4) {
-                Image(systemName: day.daySymbol)
-                    .symbolRenderingMode(.multicolor)
-                    .font(.system(size: 22))
-                    .frame(width: 28)
-                
+                Image(systemName: day.daySymbol).symbolRenderingMode(.multicolor).font(.system(size: 22)).frame(width: 28)
                 if let nightSym = day.nightSymbol {
-                    Image(systemName: nightSym)
-                        .symbolRenderingMode(.monochrome)
-                        .foregroundStyle(.gray.opacity(0.3))
-                        .font(.system(size: 16))
-                        .offset(y: 4) // Slight offset for visual depth
-                        .offset(x: 2)
+                    Image(systemName: nightSym).symbolRenderingMode(.monochrome).foregroundStyle(.white.opacity(0.4)).font(.system(size: 16)).offset(y: 4).offset(x: 2)
                 }
-            }
-            .frame(width: 50, alignment: .leading)
+            }.frame(width: 50, alignment: .leading)
 
-            // 3. Precip Probability
-            // Logic: If NOAA gives us a specific % in the text, we should ideally use that,
-            // but for now, let's at least ensure the ICON matches the text context.
             if day.precipProbability >= 20 {
                 HStack(spacing: 3) {
-                    // FIX: Check the NOAA text ('shortForecast' or 'detailedForecast') for "Rain"
-                    let isRainText = day.detailedForecast.lowercased().contains("rain") || day.isRain
-                    
-                    Image(systemName: day.isRain ? "drop.fill" : "snowflake")
-                        .symbolRenderingMode(.multicolor)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.cyan)
-                        
-                    Text("\(day.precipProbability)%")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(red: 0.4, green: 0.8, blue: 1.0))
-                }
-                .frame(width: 44, alignment: .leading)
-            } else {
-                Spacer().frame(width: 44)
-            }
+                    Image(systemName: day.isRain ? "drop.fill" : "snowflake").symbolRenderingMode(.multicolor).font(.system(size: 11)).foregroundStyle(.cyan)
+                    Text("\(day.precipProbability)%").font(.system(size: 12, weight: .medium)).foregroundStyle(Color(red: 0.4, green: 0.8, blue: 1.0))
+                }.frame(width: 44, alignment: .leading)
+            } else { Spacer().frame(width: 44) }
 
             Spacer()
 
-            // 4. Content Triggered Layout: Snow Accums vs Temp Bar
-            if let accum = day.snowAccumulation { // Rename this property to 'accumulation' in your model if you like
+            if let accum = day.snowAccumulation {
                 HStack(spacing: 6) {
-                    // Use context to show drop or snowflake
-                    Image(systemName: day.shortForecast.lowercased().contains("rain") ? "drop.fill" : "snowflake")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.cyan)
-                    
-                    Text(accum)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.cyan)
-                    
-                    Text("\(Int(day.low.rounded()))° | \(Int(day.high.rounded()))°")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .frame(width: 60, alignment: .trailing)
+                    Image(systemName: day.isRain ? "drop.fill" : "snowflake").font(.system(size: 12, weight: .bold)).foregroundStyle(.cyan)
+                    Text(accum).font(.system(size: 14, weight: .semibold)).foregroundStyle(.cyan)
+                    Text("\(Int(day.low.rounded()))° | \(Int(day.high.rounded()))°").font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.6)).frame(width: 60, alignment: .trailing)
                 }
             } else {
-                // Standard Temp Bar
-                Text("\(Int(day.low.rounded()))°")
-                    .font(.system(size: 17, weight: .medium)).foregroundStyle(.white.opacity(0.55))
-                    .frame(width: 36, alignment: .trailing)
-
-                TempRangeBar(low: day.low, high: day.high, globalLow: globalLow, globalHigh: globalHigh)
-                    .frame(width: 72, height: 8).padding(.horizontal, 6)
-
-                Text("\(Int(day.high.rounded()))°")
-                    .font(.system(size: 17, weight: .medium)).foregroundStyle(.white)
-                    .frame(width: 36, alignment: .leading)
+                Text("\(Int(day.low.rounded()))°").font(.system(size: 17, weight: .medium)).foregroundStyle(.white.opacity(0.55)).frame(width: 36, alignment: .trailing)
+                TempRangeBar(low: day.low, high: day.high, globalLow: globalLow, globalHigh: globalHigh).frame(width: 72, height: 8).padding(.horizontal, 6)
+                Text("\(Int(day.high.rounded()))°").font(.system(size: 17, weight: .medium)).foregroundStyle(.white).frame(width: 36, alignment: .leading)
             }
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.3))
-                .padding(.leading, 6)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
+            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.3)).padding(.leading, 6)
+        }.padding(.horizontal, 16).padding(.vertical, 10)
     }
 }
 
@@ -572,7 +498,9 @@ struct CompassRose: View {
 
 struct SunCard: View {
     let sunEvent: SunEvent
-    private let fmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "h:mm a"; return f }()
+    private let fmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "h:mm a"; return f
+    }()
 
     var body: some View {
         GlassCard {
@@ -581,70 +509,113 @@ struct SunCard: View {
                            title: sunEvent.nextIsRise ? "SUNRISE" : "SUNSET")
                 Divider().background(.white.opacity(0.2)).padding(.horizontal, 16)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(fmt.string(from: sunEvent.nextTime))
-                        .font(.system(size: 28, weight: .thin)).foregroundStyle(.white)
+                VStack(alignment: .center, spacing: 16) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(fmt.string(from: sunEvent.nextTime).prefix(while: { $0 != " " }))
+                            .font(.system(size: 42, weight: .light, design: .rounded))
+                        Text(fmt.string(from: sunEvent.nextTime).suffix(2))
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.top, 14)
 
-                    SunArcView(sunrise: sunEvent.sunrise, sunset: sunEvent.sunset)
-                        .frame(height: 70)
+                    // The Thicker, Glowier Orbital Arc
+                    SunOrbitalView(sunrise: sunEvent.sunrise, sunset: sunEvent.sunset)
+                        .frame(height: 70) // Lowered height for a shallower curve
+                        .padding(.horizontal, 24)
 
-                    Text(sunEvent.nextIsRise
-                         ? "Sunset \(fmt.string(from: sunEvent.sunset))"
-                         : "Sunrise \(fmt.string(from: sunEvent.sunrise))")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.6))
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sunrise").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+                            Text(fmt.string(from: sunEvent.sunrise)).font(.system(size: 13, weight: .medium))
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("Sunset").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+                            Text(fmt.string(from: sunEvent.sunset)).font(.system(size: 13, weight: .medium))
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.bottom, 4)
                 }
-                .padding(.horizontal, 16).padding(.bottom, 16)
+                .padding([.horizontal, .bottom], 20)
             }
         }
     }
 }
 
-struct SunArcView: View {
-    let sunrise: Date; let sunset: Date
+struct SunOrbitalView: View {
+    let sunrise: Date
+    let sunset: Date
+    
     private var progress: Double {
         let total = sunset.timeIntervalSince(sunrise)
         guard total > 0 else { return 0 }
-        return max(0, min(1.1, Date().timeIntervalSince(sunrise) / total))
-    }
-
-    private func ellipsePoint(t: Double, cx: CGFloat, base: CGFloat, rx: CGFloat, ry: CGFloat) -> CGPoint {
-        let angle = Double.pi - t * Double.pi
-        return CGPoint(x: cx + CGFloat(cos(angle)) * rx, y: base - CGFloat(sin(angle)) * ry)
+        return max(0, min(1.0, Date().timeIntervalSince(sunrise) / total))
     }
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width; let h = geo.size.height
-            let hPad: CGFloat = 10; let base = h - 6
-            let rx = (w - hPad * 2) / 2; let ry = h - 8
-            let cx = w / 2; let prog = progress
-            let dotPt = ellipsePoint(t: prog, cx: cx, base: base, rx: rx, ry: ry)
-
+            let w = geo.size.width
+            // Calculate a point on a circle that only spans the top 60 degrees (upper 1/3)
+            let radius: CGFloat = w * 0.8 // Large radius for a shallow arc
+            let center = CGPoint(x: w / 2, y: radius + 10) // Center is deep below the view
+            
+            // Angles: 240 to 300 degrees creates a shallow top-center arc
+            let startAngle: Double = 240
+            let endAngle: Double = 300
+            let currentAngle = startAngle + (progress * (endAngle - startAngle))
+            
+            let sunPos = CGPoint(
+                x: center.x + radius * cos(CGFloat(currentAngle) * .pi / 180),
+                y: center.y + radius * sin(CGFloat(currentAngle) * .pi / 180)
+            )
+            
             ZStack {
+                // 1. Background Path (Thick & Subtle)
                 Path { p in
-                    p.move(to: CGPoint(x: hPad, y: base)); p.addLine(to: CGPoint(x: w - hPad, y: base))
-                }.stroke(Color.white.opacity(0.2), lineWidth: 1)
-
-                Path { p in
-                    for i in 0...60 {
-                        let pt = ellipsePoint(t: Double(i)/60.0, cx: cx, base: base, rx: rx, ry: ry)
-                        if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
-                    }
-                }.stroke(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-
-                if prog > 0 {
-                    Path { p in
-                        for i in 0...Int(prog * 60) {
-                            let pt = ellipsePoint(t: Double(i)/60.0, cx: cx, base: base, rx: rx, ry: ry)
-                            if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
-                        }
-                    }.stroke(LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing),
-                             style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    p.addArc(center: center, radius: radius, startAngle: .degrees(startAngle), endAngle: .degrees(endAngle), clockwise: false)
                 }
+                .stroke(Color.white.opacity(0.1), style: StrokeStyle(lineWidth: 6, lineCap: .round))
 
-                Circle().fill(Color.white).frame(width: 11, height: 11)
-                    .shadow(color: .yellow.opacity(0.9), radius: 5).position(dotPt)
+                // 2. Active Path Glow (Inner Bloom)
+                Path { p in
+                    p.addArc(center: center, radius: radius, startAngle: .degrees(startAngle), endAngle: .degrees(currentAngle), clockwise: false)
+                }
+                .stroke(
+                    LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing),
+                    style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                )
+                .blur(radius: 3)
+
+                // 3. Active Path (Core)
+                Path { p in
+                    p.addArc(center: center, radius: radius, startAngle: .degrees(startAngle), endAngle: .degrees(currentAngle), clockwise: false)
+                }
+                .stroke(
+                    LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing),
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                )
+
+                // 4. The Sun Orb (High Glow)
+                ZStack {
+                    Circle() // Deep Bloom
+                        .fill(Color.orange)
+                        .frame(width: 25, height: 25)
+                        .blur(radius: 8)
+                    
+                    Circle() // Outer Ray
+                        .stroke(Color.yellow.opacity(0.4), lineWidth: 1)
+                        .frame(width: 22, height: 22)
+                        .scaleEffect(1.2)
+                    
+                    Circle() // Core
+                        .fill(.white)
+                        .frame(width: 12, height: 12)
+                        .shadow(color: .white, radius: 4)
+                }
+                .position(sunPos)
             }
         }
     }
