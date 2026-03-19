@@ -123,10 +123,21 @@ struct WeatherContentView: View {
             CurrentConditionsHeader(
                 locationName: viewModel.locationName,
                 current: viewModel.current,
-                high: viewModel.globalHigh,
-                low: viewModel.globalLow
+                high: viewModel.daily.first?.high,
+                low: viewModel.daily.first?.low
             )
             .padding(.top, 60).padding(.bottom, 12)
+            .overlay(alignment: .topTrailing) {
+                // Indicator while AI analysis runs in the background
+                if viewModel.isAnalyzing {
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(0.8)
+                        .padding(.top, 56)
+                        .padding(.trailing, 40)
+                        .transition(.opacity)
+                }
+            }
 
             if !viewModel.hourly.isEmpty {
                 HourlyCard(hours: viewModel.hourly, sunEvent: viewModel.sunEvent)
@@ -343,29 +354,38 @@ struct DailyRow: View {
             HStack(spacing: -4) {
                 Image(systemName: day.daySymbol).symbolRenderingMode(.multicolor).font(.system(size: 22)).frame(width: 28)
                 if let nightSym = day.nightSymbol {
-                    Image(systemName: nightSym).symbolRenderingMode(.monochrome).foregroundStyle(.white.opacity(0.4)).font(.system(size: 16)).offset(y: 4).offset(x: 2)
+                    Image(systemName: nightSym).symbolRenderingMode(.monochrome).foregroundStyle(.white.opacity(0.4)).font(.system(size: 16)).offset(y: 4).offset(x: 5)
                 }
             }.frame(width: 50, alignment: .leading)
 
             if day.precipProbability >= 20 {
                 HStack(spacing: 3) {
-                    Image(systemName: day.isRain ? "drop.fill" : "snowflake").symbolRenderingMode(.multicolor).font(.system(size: 11)).foregroundStyle(.cyan)
+                    Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake").symbolRenderingMode(.multicolor).font(.system(size: 11)).foregroundStyle(.cyan)
                     Text("\(day.precipProbability)%").font(.system(size: 12, weight: .medium)).foregroundStyle(Color(red: 0.4, green: 0.8, blue: 1.0))
                 }.frame(width: 44, alignment: .leading)
             } else { Spacer().frame(width: 44) }
 
             Spacer()
 
-            if let accum = day.snowAccumulation {
+            if day.accumulation.hasAccumulation {
                 HStack(spacing: 6) {
-                    Image(systemName: day.isRain ? "drop.fill" : "snowflake").font(.system(size: 12, weight: .bold)).foregroundStyle(.cyan)
-                    Text(accum).font(.system(size: 14, weight: .semibold)).foregroundStyle(.cyan)
-                    Text("\(Int(day.low.rounded()))° | \(Int(day.high.rounded()))°").font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.6)).frame(width: 60, alignment: .trailing)
+                    Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake")
+                        .font(.system(size: 12, weight: .bold)).foregroundStyle(.cyan)
+                    Text(day.accumulation.displayString)
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(.cyan)
+                    Text("\(Int(day.low.rounded()))° | \(Int(day.high.rounded()))°")
+                        .font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.6))
+                        .frame(width: 60, alignment: .trailing)
                 }
             } else {
-                Text("\(Int(day.low.rounded()))°").font(.system(size: 17, weight: .medium)).foregroundStyle(.white.opacity(0.55)).frame(width: 36, alignment: .trailing)
-                TempRangeBar(low: day.low, high: day.high, globalLow: globalLow, globalHigh: globalHigh).frame(width: 72, height: 8).padding(.horizontal, 6)
-                Text("\(Int(day.high.rounded()))°").font(.system(size: 17, weight: .medium)).foregroundStyle(.white).frame(width: 36, alignment: .leading)
+                Text("\(Int(day.low.rounded()))°")
+                    .font(.system(size: 17, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+                    .frame(width: 36, alignment: .trailing)
+                TempRangeBar(low: day.low, high: day.high, globalLow: globalLow, globalHigh: globalHigh)
+                    .frame(width: 72, height: 8).padding(.horizontal, 6)
+                Text("\(Int(day.high.rounded()))°")
+                    .font(.system(size: 17, weight: .medium)).foregroundStyle(.white)
+                    .frame(width: 36, alignment: .leading)
             }
             Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.3)).padding(.leading, 6)
         }.padding(.horizontal, 16).padding(.vertical, 10)
@@ -388,7 +408,7 @@ struct TempRangeBar: View {
                 Capsule()
                     .fill(LinearGradient(colors: [.cyan, .yellow, .orange],
                                          startPoint: .leading, endPoint: .trailing))
-                    .frame(width: max(6, (e - s) * w), height: 8)
+                    .frame(width: max(6, (e - s) * w), height: 7)
                     .offset(x: s * w)
             }
         }
@@ -664,19 +684,55 @@ struct DayDetailSheet: View {
                             .padding(16).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
                         }
 
-                        if !day.detailedForecast.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                if let snow = day.snowAccumulation {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "snowflake").foregroundStyle(.cyan)
-                                        Text("Accumulation: \(snow)").font(.system(size: 15, weight: .semibold)).foregroundStyle(.cyan)
-                                    }
+                        // Accumulation callout
+                        if day.accumulation.hasAccumulation {
+                            HStack(spacing: 8) {
+                                Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake")
+                                    .foregroundStyle(.cyan)
+                                Text("Accumulation: \(day.accumulation.displayString)")
+                                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(.cyan)
+                            }
+                            .padding(.horizontal, 20)
+                        }
+
+                        // Day forecast prose
+                        if !day.dayProse.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: day.daySymbol)
+                                        .symbolRenderingMode(.multicolor)
+                                        .font(.system(size: 17))
+                                    Text("DAY")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.secondary)
                                 }
-                                Text(day.detailedForecast)
+                                Text(day.dayProse)
                                     .font(.system(size: 15)).foregroundStyle(.primary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
-                            .padding(16).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
+                            .padding(16)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
+                            .padding(.horizontal, 16)
+                        }
+
+                        // Night forecast prose
+                        if !day.nightProse.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: day.nightSymbol ?? "moon.stars.fill")
+                                        .symbolRenderingMode(.multicolor)
+                                        .font(.system(size: 17))
+                                    Text("NIGHT")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(day.nightProse)
+                                    .font(.system(size: 15)).foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(16)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
+                            .padding(.horizontal, 16)
                         }
                         Spacer(minLength: 32)
                     }

@@ -26,73 +26,108 @@ enum WeatherBackground {
 @Observable
 @MainActor
 final class WeatherViewModel {
-    // Current State
+    private var lastFetchTime: Date?
+    private var lastFetchedCoordinate: CLLocationCoordinate2D?
+
+    // Weather data
     var current: CurrentConditions?
     var daily: [DailyForecast] = []
     var hourly: [HourlyForecast] = []
     var sunEvent: SunEvent?
-    
-    // UI Metadata
+
+    // UI state
     var locationName: String = ""
     var background: WeatherBackground = .sun
     var isLoading = false
+    var isAnalyzing = false   // true while AI night-severity analysis is running
     var errorMessage: String?
-    
-    // Scaling for Charts
+
+    // Chart scaling
     var globalLow: Double = 0
     var globalHigh: Double = 100
     var dailyHigh: Double? { daily.first?.high }
     var dailyLow: Double? { daily.first?.low }
 
-    private var lastFetchedCoordinate: CLLocationCoordinate2D?
-
-    /// Main entry point for the UI to request data
-    func load(coordinate: CLLocationCoordinate2D, skipGeocode: Bool = false) async {
-        // 1. Dedup logic: Don't re-fetch if we are within ~1km of the last fetch
-        if let last = lastFetchedCoordinate,
+    func load(coordinate: CLLocationCoordinate2D, skipGeocode: Bool = false, forceRefresh: Bool = false) async {
+        if !forceRefresh,
+           let last = lastFetchedCoordinate,
            abs(last.latitude - coordinate.latitude) < 0.01,
-           abs(last.longitude - coordinate.longitude) < 0.01 { return }
-        
+           abs(last.longitude - coordinate.longitude) < 0.01,
+           let lastFetch = lastFetchTime,
+           Date().timeIntervalSince(lastFetch) < 900 { return }
+
         lastFetchedCoordinate = coordinate
         isLoading = true
         errorMessage = nil
 
-        // 2. Geocoding (City Name)
-        if !skipGeocode {
-            // 1. Run the MapKit search
-            await updateLocationName(for: coordinate)
-            
-            if self.locationName.isEmpty {
-                self.locationName = "Unknown location"
-            }
+        // Geocode concurrently — don't block weather fetch
+        if !skipGeocode && locationName.isEmpty {
+            Task { await updateLocationName(for: coordinate) }
         }
 
         do {
-            // 3. Use our new Orchestrator to get everything at once
-            let (cur, days, sun) = try await WeatherRepository.shared.fetchAll(
+            let (cur, days, sun, scrapedPeriods) = try await WeatherRepository.shared.fetchAll(
                 lat: coordinate.latitude,
                 lon: coordinate.longitude
             )
 
-            // 4. Update Properties
-            self.current = cur
-            self.daily = days
-            self.sunEvent = sun
-            self.background = WeatherBackground.from(code: cur.weatherCode)
-            
-            // Prepare Hourly slice (next 12 hours)
-            if let firstDay = days.first {
-                self.hourly = Array(firstDay.hourlyTemps.prefix(12))
-            }
-            
-            // 5. Calculate Global Min/Max for unified chart scaling
+            // Phase 1: show weather immediately
+            current = cur
+            daily   = days
+            sunEvent = sun
+            background = WeatherBackground.from(code: cur.weatherCode)
+            hourly = Array((days.first?.hourlyTemps ?? []).prefix(12))
             calculateGlobalBounds(days: days)
+            isLoading = false
+            lastFetchTime = Date()
+
+            // Phase 2: AI night-severity analysis in background, concurrent across all days
+            guard !scrapedPeriods.isEmpty else { return }
+            isAnalyzing = true
+            let severityMap = await NOAAScraper.shared.analyzeNightSeverity(for: scrapedPeriods)
+            applyNightSeverity(severityMap, scrapedPeriods: scrapedPeriods)
+            isAnalyzing = false
 
         } catch {
-            self.errorMessage = "Failed to load weather: \(error.localizedDescription)"
+            errorMessage = "Failed to load weather: \(error.localizedDescription)"
+            isLoading = false
         }
+    }
 
-        self.isLoading = false
+    /// Patches daily array in-place with AI results, updating only the night symbol.
+    private func applyNightSeverity(
+        _ map: [String: Bool],
+        scrapedPeriods: [String: NOAAScraper.ScrapedPeriod]
+    ) {
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        daily = daily.map { day in
+            let key = fmt.string(from: day.date)
+            guard let severe = map[key], severe,
+                  let period = scrapedPeriods[key] else { return day }
+            // Build night symbol from the actual night condition string
+            let nightSym = noaaSFSymbol(condition: period.nightCondition, isDay: false)
+                        ?? nightFallback(for: day.precipType)
+            return DailyForecast(
+                id: day.id, date: day.date, high: day.high, low: day.low,
+                precipProbability: day.precipProbability,
+                shortForecast: day.shortForecast,
+                dayProse: day.dayProse, nightProse: day.nightProse,
+                accumulation: day.accumulation,
+                precipType: day.precipType,
+                isNightSevere: true,
+                daySymbol: day.daySymbol,
+                nightSymbol: nightSym,
+                hourlyTemps: day.hourlyTemps
+            )
+        }
+    }
+
+    private func nightFallback(for type: PrecipType) -> String {
+        switch type {
+        case .snow, .mixed: return "cloud.snow.fill"
+        case .rain:         return "cloud.rain.fill"
+        case .none:         return "cloud.bolt.rain.fill"
+        }
     }
 
     func setLocationName(_ name: String) {

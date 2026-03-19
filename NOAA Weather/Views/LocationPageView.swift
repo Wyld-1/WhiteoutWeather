@@ -38,9 +38,15 @@ struct LocationPageView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         WeatherContentView(viewModel: viewModel, selectedDay: $selectedDay)
                         
-                        if !isCurrentLocation {
-                            deleteButton
-                        }
+                        if !isCurrentLocation { deleteButton }
+                    }
+                    .refreshable {
+                        guard let coord = coordinate else { return }
+                        // Detach so SwiftUI's task cancellation on scroll-snap
+                        // doesn't cancel our network requests.
+                        await Task.detached(priority: .userInitiated) {
+                            await viewModel.load(coordinate: coord, forceRefresh: true)
+                        }.value
                     }
                 }
             }
@@ -61,9 +67,15 @@ struct LocationPageView: View {
         } message: {
             Text("Remove \(savedLocation?.name ?? "this location")?")
         }
-        // Optimization: Fetch data ONLY when the coordinate changes
         .task(id: coordinate?.latitude) {
             triggerFetch()
+        }
+        // Refresh this saved location when the 15-min background timer fires
+        .onReceive(NotificationCenter.default.publisher(for: .refreshAllLocations)) { _ in
+            guard savedLocation != nil, let coord = coordinate else { return }
+            Task {
+                await viewModel.load(coordinate: coord, skipGeocode: true, forceRefresh: true)
+            }
         }
     }
 
