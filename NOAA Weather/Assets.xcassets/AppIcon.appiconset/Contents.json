@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "NOAA Weather.png",
+      "filename" : "NOAA Light.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "NOAA Weather Dark.png",
+      "filename" : "NOAA Dark.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -25,7 +25,7 @@
           "value" : "tinted"
         }
       ],
-      "filename" : "NOAA Weather Clear.png",
+      "filename" : "NOAA Clear.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
