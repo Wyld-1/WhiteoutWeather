@@ -260,7 +260,7 @@ struct CurrentConditionsHeader: View {
                 .font(.system(size: 20, weight: .medium)).foregroundStyle(.white.opacity(0.9)).shadow(radius: 3)
             
             if let h = high, let l = low {
-                Text("H:\(Int(h.rounded()))°  L:\(Int(l.rounded()))°")
+                Text("L:\(Int(l.rounded()))°  H:\(Int(h.rounded()))°")
                     .font(.system(size: 18, weight: .medium)).foregroundStyle(.white.opacity(0.85)).shadow(radius: 3)
             }
         }

@@ -431,6 +431,12 @@ actor NOAAScraper {
            let hi = Double(match) {
             return AccumulationRange(low: nil, high: hi)
         }
+        
+        // "Around an inch"
+        let aroundAnInchPhrases = ["around an inch", "around one inch", "about an inch", "near an inch"]
+        if aroundAnInchPhrases.contains(where: { lower.contains($0) }) {
+            return AccumulationRange(low: 1.0, high: 1.0)
+        }
 
         // "around X" / "about X" / "near X" inches
         if let match = firstRegexMatch("(?:around|about|near) ([0-9]+(?:\\.[0-9]+)?) inch", in: text),
@@ -544,30 +550,62 @@ nonisolated func weatherCategory(from condition: String) -> WeatherCategory {
 nonisolated func extractConditionLabel(from text: String) -> String {
     guard !text.isEmpty else { return text }
 
-    // Strip period-name prefix: "Monday: ", "This Afternoon: ", "Tonight: ", etc.
     var working = text
+    // Strip period-name prefix: "Monday: ", "Tonight: ", etc.
     if let colonRange = working.range(of: ": ") {
         let prefix = String(working[working.startIndex..<colonRange.lowerBound])
-        // Only strip if the prefix is 1–2 words — NOAA period labels are "Tonight",
-        // "Monday", "Monday Night", "This Afternoon". Never a weather description.
         if prefix.split(separator: " ").count <= 2 {
             working = String(working[colonRange.upperBound...])
         }
     }
 
-    // Take everything before the first comma or period — that's the condition
-    let sentence = working
-        .components(separatedBy: CharacterSet(charactersIn: ",."))
-        .first ?? working
-    let trimmed = sentence.trimmingCharacters(in: .whitespaces)
+    // Identify primary Sky and Precip components
+    let lower = working.lowercased()
+    let skyKeywords = ["sunny", "clear", "cloudy", "fair", "overcast", "mostly sunny", "partly sunny", "mostly cloudy", "partly cloudy"]
+    let precipKeywords = ["rain", "snow", "showers", "thunderstorms", "drizzle", "sleet", "flurries"]
+    
+    var foundSky: String? = nil
+    var foundPrecip: String? = nil
+    
+    // Scan the first two sentences for keywords
+    let sentences = working.components(separatedBy: ". ").prefix(2)
+    for sentence in sentences {
+        let s = sentence.lowercased()
+        
+        if foundSky == nil {
+            foundSky = skyKeywords.first(where: { s.contains($0) })
+        }
+        
+        if foundPrecip == nil {
+            if let p = precipKeywords.first(where: { s.contains($0) }) {
+                // Add context like "Likely" or "Chance" if present in that sentence
+                if s.contains("likely") { foundPrecip = "\(p) likely" }
+                else if s.contains("chance") { foundPrecip = "chance of \(p)" }
+                else { foundPrecip = p }
+            }
+        }
+    }
 
-    // Title-case it
-    return trimmed
+    // Construct the label
+    let result: String
+    if let sky = foundSky, let precip = foundPrecip {
+        result = "\(sky), \(precip)"
+    } else if let sky = foundSky {
+        result = sky
+    } else if let precip = foundPrecip {
+        result = precip
+    } else {
+        // Fallback to original "first sentence part" logic
+        result = working.components(separatedBy: CharacterSet(charactersIn: ",.")).first ?? working
+    }
+
+    // Title-case the final result
+    return result.trimmingCharacters(in: .whitespaces)
         .split(separator: " ")
         .map { word -> String in
-            // Keep small words lowercase unless they're the first word
-            let w = String(word)
-            return w.prefix(1).uppercased() + w.dropFirst().lowercased()
+            let w = String(word).lowercased()
+            let smallWords = ["of", "a", "an", "the"]
+            return smallWords.contains(w) ? w : w.prefix(1).uppercased() + w.dropFirst()
         }
         .joined(separator: " ")
 }

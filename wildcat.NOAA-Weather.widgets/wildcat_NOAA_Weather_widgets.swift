@@ -212,7 +212,7 @@ struct WeatherInfoView: View {
                         .foregroundStyle(.cyan.opacity(0.9))
                         .shadow(color: .white, radius: 1.5)
                     
-                    Text(String(Int(data.high)) + "˚ | " + String(Int(data.low)) + "˚")
+                    Text(String(Int(data.low.rounded())) + "˚ | " + String(Int(data.high.rounded())) + "˚")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.white.opacity(0.9))
                         .shadow(color: .black.opacity(0.4), radius: 1)
@@ -220,7 +220,7 @@ struct WeatherInfoView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
             else {
-                Text("H:\(Int(data.high))°  L:\(Int(data.low))°")
+                Text("L:\(Int(data.low.rounded()))°  H:\(Int(data.low.rounded()))°")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white.opacity(0.9))
                     .shadow(color: .black.opacity(0.4), radius: 1)

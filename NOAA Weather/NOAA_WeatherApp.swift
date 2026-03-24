@@ -5,6 +5,8 @@
 import SwiftUI
 import Combine
 import AVFoundation
+import WidgetKit
+import BackgroundTasks
 
 extension Notification.Name {
     static let refreshAllLocations = Notification.Name("refreshAllLocations")
@@ -14,13 +16,15 @@ extension Notification.Name {
 struct NOAA_WeatherApp: App {
     @State private var locationStore = LocationStore()
     @State private var locationManager = LocationManager()
-    
-    // Track the ID of the location we want to display
     @State private var selectedLocationID: String? = "current"
+    @Environment(\.scenePhase) private var phase
 
+    private let refreshTaskID = "com.wildcat.weather.refresh"
+    
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
+        registerBackgroundTask()
     }
 
     var body: some Scene {
@@ -49,5 +53,47 @@ struct NOAA_WeatherApp: App {
     
     // Update the state to switch the UI to this location
     selectedLocationID = locationID
-}
+    }
+    
+    private func registerBackgroundTask() {
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else { return }
+            handleAppRefresh(task: refreshTask)
+        }
+    }
+
+    private func scheduleAppRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: refreshTaskID)
+        // Request a refresh in 30 minutes
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
+        
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("Scheduling failed: \(error)")
+        }
+    }
+
+    private func handleAppRefresh(task: BGAppRefreshTask) {
+        scheduleAppRefresh()
+
+        let manager = locationManager
+        let savedLocations = locationStore.saved
+
+        task.expirationHandler = { }
+
+        Task {
+            if let coord = manager.coordinate {
+                let vm = WeatherViewModel()
+                await vm.load(coordinate: coord, locationID: "current")
+            }
+
+            for loc in savedLocations {
+                let vm = WeatherViewModel()
+                await vm.load(coordinate: loc.coordinate, locationID: loc.id.uuidString)
+            }
+
+            task.setTaskCompleted(success: true)
+        }
+    }
 }
