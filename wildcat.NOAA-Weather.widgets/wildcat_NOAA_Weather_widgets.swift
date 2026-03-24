@@ -133,25 +133,19 @@ struct WidgetBackground: View {
         let colors: [Color]
         
         if c.contains("snow") || c.contains("sleet") || c.contains("flurr") {
-            // Snow: Bright white and slight gray
-            // Note: We use 0.95 instead of 1.0 so white text stays visible
             colors = [Color(white: 0.95), Color(white: 0.75)]
             
         } else if c.contains("rain") || c.contains("drizzle") || c.contains("storm") {
-            // Rain/Storm: Deep moody blue-grays
-            colors = [Color(red: 0.15, green: 0.2, blue: 0.3), Color(red: 0.35, green: 0.4, blue: 0.5)]
+            colors = [Color(white: 0.6), Color(white: 0.3)]
             
         } else if !isDay {
-            // Night: Deep midnight blue
             colors = [Color(red: 0.02, green: 0.05, blue: 0.15), Color(red: 0.1, green: 0.1, blue: 0.25)]
             
         } else if c.contains("clear") || c.contains("sunny") || c.contains("fair") {
-            // Clear: Vibrant blue and yellow
             colors = [Color.blue, Color.yellow]
             
         } else {
-            // Clouds/Default: Gray and darker gray
-            colors = [Color(white: 0.6), Color(white: 0.3)]
+            colors = [Color(red: 0.15, green: 0.2, blue: 0.3), Color(red: 0.35, green: 0.4, blue: 0.5)]
         }
         
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)

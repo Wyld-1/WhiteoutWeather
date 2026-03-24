@@ -27,8 +27,7 @@ struct LocationQuery: EntityQuery {
         let defaults = UserDefaults(suiteName: "group.weather.widgetinfo")
         let registry = defaults?.dictionary(forKey: "saved_location_names") as? [String: String] ?? [:]
         
-        // Look for an ordered list of IDs from the main app
-        let order = defaults?.stringArray(forKey: "ordered_location_ids") ?? Array(registry.keys)
+        let order = defaults?.stringArray(forKey: "ordered_location_ids") ?? []
         
         return order.compactMap { id in
             guard let name = registry[id] else { return nil }

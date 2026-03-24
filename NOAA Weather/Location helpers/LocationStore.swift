@@ -54,19 +54,21 @@ final class LocationStore {
         }
     }
 
-    // Bridge app data to the widget view
     private func syncToWidget() {
         guard let defaults = UserDefaults(suiteName: groupID) else { return }
         
-        // Map saved locations to a simple [ID: Name] dictionary
         var registry: [String: String] = [:]
+        // Capture the IDs in their current array order
+        let orderedIDs = saved.map { $0.id.uuidString }
+        
         for loc in saved {
             registry[loc.id.uuidString] = loc.name
         }
         
+        // Save both the data and the order
         defaults.set(registry, forKey: "saved_location_names")
+        defaults.set(orderedIDs, forKey: "ordered_location_ids")
         
-        // Tell the widgets to refresh their lists
         WidgetCenter.shared.reloadAllTimelines()
     }
 

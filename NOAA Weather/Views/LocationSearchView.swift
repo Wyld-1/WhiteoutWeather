@@ -114,7 +114,10 @@ struct LocationSearchView: View {
     private func resolveAndAdd(_ completion: MKLocalSearchCompletion) async {
         isResolving = true
         let req = MKLocalSearch.Request(completion: completion)
-        if let resp = try? await MKLocalSearch(request: req).start(), let item = resp.mapItems.first {
+        
+        if let resp = try? await MKLocalSearch(request: req).start(),
+           let item = resp.mapItems.first,
+           item.placemark.isoCountryCode == "US" {
             let city = item.placemark.locality ?? ""
             let state = item.placemark.administrativeArea ?? ""
             let name = (city.isEmpty) ? (item.name ?? completion.title) : "\(city), \(state)"
@@ -178,3 +181,4 @@ struct MapResultRow: View {
         }
     }
 }
+
