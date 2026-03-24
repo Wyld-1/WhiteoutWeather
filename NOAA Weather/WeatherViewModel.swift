@@ -31,21 +31,35 @@ enum WeatherBackground {
 
     // Derive background from a NOAA condition string (e.g. "Mostly Sunny", "Chance Snow Showers").
     // Returns nil if condition is empty or unrecognised — caller falls back to WMO code.
+    // WeatherViewModel.swift
+
     static func fromCondition(_ condition: String) -> WeatherBackground? {
         let c = condition.lowercased()
         guard !c.isEmpty else { return nil }
-        // Handle "X then Y" — use the dominant (post-then) part
-        let part = c.components(separatedBy: " then ").last ?? c
-        if part.contains("thunder") || part.contains("tstm")               { return .rain }
-        if part.contains("blizzard") || part.contains("heavy snow")         { return .snow }
-        if part.contains("snow") || part.contains("flurr") || part.contains("sleet") { return .snow }
-        if part.contains("heavy rain") || part.contains("shower")           { return .rain }
-        if part.contains("rain") || part.contains("drizzle")               { return .drizzle }
-        if part.contains("fog") || part.contains("mist")                   { return .clouds }
-        if part.contains("overcast") || part.contains("cloudy")            { return .clouds }
-        if part.contains("mostly sunny") || part.contains("mostly clear")  { return .mostlySunny }
-        if part.contains("partly sunny") || part.contains("partly cloudy") { return .mostlySunny }
-        if part.contains("sunny") || part.contains("clear") || part.contains("fair") { return .sun }
+
+        // Check for uncertainty in the first sentence to prioritize the sky "vibe"
+        let firstSentence = c.components(separatedBy: ". ").first ?? c
+        let isUncertain = firstSentence.contains("likely") || firstSentence.contains("chance") || firstSentence.contains("possible")
+
+        if isUncertain {
+            if c.contains("cloudy") || c.contains("overcast") || c.contains("fog") { return .clouds }
+            if c.contains("mostly") || c.contains("partly") { return .mostlySunny }
+        }
+
+        // Check the PRIMARY part (before the first comma) to capture the lead condition
+        // This ensures "Rain, mixed with snow" is Rain, and "Snow, mixed with rain" is Snow.
+        let primary = c.components(separatedBy: ",").first ?? c
+        if primary.contains("thunder") || primary.contains("tstm") { return .rain }
+        if primary.contains("snow") || primary.contains("flurr") || primary.contains("sleet") { return .snow }
+        if primary.contains("rain") || primary.contains("shower") || primary.contains("drizzle") { return .rain }
+
+        // Broad Fallbacks
+        if c.contains("snow") || c.contains("sleet") { return .snow }
+        if c.contains("rain") || c.contains("shower") { return .rain }
+        if c.contains("cloudy") || c.contains("overcast") || c.contains("fog") { return .clouds }
+        if c.contains("mostly") || c.contains("partly") { return .mostlySunny }
+        if c.contains("sunny") || c.contains("clear") || c.contains("fair") { return .sun }
+
         return nil
     }
 }

@@ -101,7 +101,10 @@ nonisolated func noaaSFSymbol(condition: String, isDay: Bool) -> String? {
         if s.contains("snow shower")                                 { return "cloud.snow.fill" }
         if s.contains("flurr")                                       { return "cloud.snow.fill" }
         if s.contains("wintry mix") || s.contains("rain/snow") ||
-           s.contains("rain and snow") || s.contains("snow and rain") { return "cloud.sleet.fill" }
+                   s.contains("rain and snow") || s.contains("snow and rain") ||
+                   s.contains("mixed with") || s.contains(" mixed ") {
+                    return "cloud.sleet.fill"
+                }
         if s.contains("snow")                                        { return "cloud.snow.fill" }
         if s.contains("heavy rain")                                  { return "cloud.heavyrain.fill" }
         if s.contains("rain shower") || s.contains("shower")        {

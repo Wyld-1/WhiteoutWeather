@@ -547,65 +547,50 @@ nonisolated func weatherCategory(from condition: String) -> WeatherCategory {
 // Works on both tombstone conditions ("Mostly Sunny") and prose
 // ("This Afternoon: Mostly sunny, with a high near 42...").
 // Always returns title-cased, e.g. "Mostly Sunny".
+// In WeatherModel.swift
 nonisolated func extractConditionLabel(from text: String) -> String {
     guard !text.isEmpty else { return text }
 
     var working = text
-    // Strip period-name prefix: "Monday: ", "Tonight: ", etc.
+    
+    // Strip the prefix (e.g., "Monday: ")
     if let colonRange = working.range(of: ": ") {
-        let prefix = String(working[working.startIndex..<colonRange.lowerBound])
-        if prefix.split(separator: " ").count <= 2 {
-            working = String(working[colonRange.upperBound...])
+        working = String(working[colonRange.upperBound...])
+    }
+
+    // Focus on the first state (Stop at "becoming", "then", or first period)
+    let transitionKeywords = [" becoming ", " then ", " before "]
+    var firstState = working.components(separatedBy: ".").first ?? working
+    
+    for word in transitionKeywords {
+        if let range = firstState.lowercased().range(of: word) {
+            firstState = String(firstState[..<range.lowerBound])
         }
     }
 
-    // Identify primary Sky and Precip components
-    let lower = working.lowercased()
-    let skyKeywords = ["sunny", "clear", "cloudy", "fair", "overcast", "mostly sunny", "partly sunny", "mostly cloudy", "partly cloudy"]
-    let precipKeywords = ["rain", "snow", "showers", "thunderstorms", "drizzle", "sleet", "flurries"]
+    // Extract primary condition before secondary descriptions (mixed with, etc.)
+    // If we have "Rain, possibly mixed with snow", we take everything before the first comma
+    // IF that first part contains a major weather keyword.
+    let components = firstState.components(separatedBy: ",")
+    let primaryPart = components.first?.trimmingCharacters(in: .whitespaces) ?? firstState
     
-    var foundSky: String? = nil
-    var foundPrecip: String? = nil
+    // Keywords to validate that the first part is actually the weather (Rain, Snow, Cloudy)
+    let weatherKeywords = ["rain", "snow", "cloudy", "sunny", "clear", "fog", "drizzle", "showers", "sleet"]
+    let lowerPrimary = primaryPart.lowercased()
     
-    // Scan the first two sentences for keywords
-    let sentences = working.components(separatedBy: ". ").prefix(2)
-    for sentence in sentences {
-        let s = sentence.lowercased()
-        
-        if foundSky == nil {
-            foundSky = skyKeywords.first(where: { s.contains($0) })
-        }
-        
-        if foundPrecip == nil {
-            if let p = precipKeywords.first(where: { s.contains($0) }) {
-                // Add context like "Likely" or "Chance" if present in that sentence
-                if s.contains("likely") { foundPrecip = "\(p) likely" }
-                else if s.contains("chance") { foundPrecip = "chance of \(p)" }
-                else { foundPrecip = p }
-            }
-        }
-    }
-
-    // Construct the label
-    let result: String
-    if let sky = foundSky, let precip = foundPrecip {
-        result = "\(sky), \(precip)"
-    } else if let sky = foundSky {
-        result = sky
-    } else if let precip = foundPrecip {
-        result = precip
+    let finalLabel: String
+    if weatherKeywords.contains(where: { lowerPrimary.contains($0) }) {
+        finalLabel = primaryPart
     } else {
-        // Fallback to original "first sentence part" logic
-        result = working.components(separatedBy: CharacterSet(charactersIn: ",.")).first ?? working
+        finalLabel = firstState // Fallback to the whole first clause
     }
 
-    // Title-case the final result
-    return result.trimmingCharacters(in: .whitespaces)
+    // Clean up and Title Case
+    return finalLabel.trimmingCharacters(in: .whitespaces)
         .split(separator: " ")
         .map { word -> String in
             let w = String(word).lowercased()
-            let smallWords = ["of", "a", "an", "the"]
-            return smallWords.contains(w) ? w : w.prefix(1).uppercased() + w.dropFirst()
+            return w.prefix(1).uppercased() + w.dropFirst()
         }
         .joined(separator: " ")
 }
