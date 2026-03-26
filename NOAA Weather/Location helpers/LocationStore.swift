@@ -57,16 +57,17 @@ final class LocationStore {
     private func syncToWidget() {
         guard let defaults = UserDefaults(suiteName: groupID) else { return }
         
-        var registry: [String: String] = [:]
-        // Capture the IDs in their current array order
+        var names: [String: String] = [:]
+        var coords: [String: String] = [:]
         let orderedIDs = saved.map { $0.id.uuidString }
         
         for loc in saved {
-            registry[loc.id.uuidString] = loc.name
+            names[loc.id.uuidString] = loc.name
+            coords[loc.id.uuidString] = "\(loc.latitude),\(loc.longitude)"
         }
         
-        // Save both the data and the order
-        defaults.set(registry, forKey: "saved_location_names")
+        defaults.set(names, forKey: "saved_location_names")
+        defaults.set(coords, forKey: "saved_location_coords")
         defaults.set(orderedIDs, forKey: "ordered_location_ids")
         
         WidgetCenter.shared.reloadAllTimelines()

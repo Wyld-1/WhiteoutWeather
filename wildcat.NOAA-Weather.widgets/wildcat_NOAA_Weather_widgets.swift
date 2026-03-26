@@ -17,17 +17,72 @@ struct Provider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> WeatherEntry {
         WeatherEntry(date: Date(), data: .placeholder)
     }
-
+    
     func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> WeatherEntry {
         let id = configuration.location?.id ?? "current"
         return WeatherEntry(date: Date(), data: WidgetWeatherData.load(id: id) ?? .placeholder)
     }
-
+    
     func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<WeatherEntry> {
         let id = configuration.location?.id ?? "current"
-        let data = WidgetWeatherData.load(id: id) ?? .placeholder
-        let entry = WeatherEntry(date: Date(), data: data)
-        return Timeline(entries: [entry], policy: .atEnd)
+        let now = Date()
+        
+        // Try to load existing cache
+        let cached = WidgetWeatherData.load(id: id)
+        
+        // Check if data is "Fresh" (less than 30 minutes old)
+        if let cached = cached, now.timeIntervalSince(cached.fetchedAt) < 1800 {
+            let entry = WeatherEntry(date: now, data: cached)
+            let nextUpdate = cached.fetchedAt.addingTimeInterval(1800)
+            return Timeline(entries: [entry], policy: .after(nextUpdate))
+        }
+        
+        // If missing or old, we need coordinates to fetch
+        var lat: Double? = cached?.lat
+        var lon: Double? = cached?.lon
+        
+        if lat == nil || lon == nil {
+            // Fallback: Check the coordinate registry for "unopened" locations
+            let defaults = UserDefaults(suiteName: WidgetWeatherData.groupID)
+            let registry = defaults?.dictionary(forKey: "saved_location_coords") as? [String: String] ?? [:]
+            if let coordString = registry[id] {
+                let parts = coordString.split(separator: ",")
+                lat = Double(parts[0])
+                lon = Double(parts[1])
+            }
+        }
+        
+        // Perform the Fetch
+        if let finalLat = lat, let finalLon = lon {
+            do {
+                let (cur, days, _, _, _) = try await WeatherRepository.shared.fetchAll(lat: finalLat, lon: finalLon)
+                let firstDay = days.first!
+                
+                let freshData = WidgetWeatherData(
+                    id: id, lat: finalLat, lon: finalLon,
+                    temperature: cur.temperature, high: firstDay.high, low: firstDay.low,
+                    condition: cur.description, sfSymbol: firstDay.daySymbol,
+                    locationName: cached?.locationName ?? "New Location", // Handle missing name
+                    windGusts: cur.windGusts, isDay: cur.isDay,
+                    accumDisplayString: firstDay.accumulation.displayString,
+                    dayProse: firstDay.dayProse, nightProse: firstDay.nightProse,
+                    fetchedAt: now
+                )
+                
+                freshData.save()
+                return Timeline(entries: [WeatherEntry(date: now, data: freshData)],
+                                policy: .after(now.addingTimeInterval(1800)))
+            } catch {
+                // Fetch failed; use old cache if possible, or retry in 15 mins
+                let fallbackData = cached ?? .placeholder
+                return Timeline(entries: [WeatherEntry(date: now, data: fallbackData)],
+                                policy: .after(now.addingTimeInterval(900)))
+            }
+        }
+        
+        // Total Failure: No cache and no registry coords
+        return Timeline(entries: [WeatherEntry(date: now, data: .placeholder)],
+                        policy: .after(now.addingTimeInterval(900)))
     }
 }
 

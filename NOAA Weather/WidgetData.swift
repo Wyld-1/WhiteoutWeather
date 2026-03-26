@@ -8,6 +8,8 @@ import WidgetKit
 
 struct WidgetWeatherData: Codable {
     let id: String // "current" or the UUID string
+    let lat: Double // Added to allow Widget to re-fetch
+    let lon: Double
     let temperature: Double
     let high: Double
     let low: Double
@@ -39,6 +41,6 @@ struct WidgetWeatherData: Codable {
     }
 
     static var placeholder: WidgetWeatherData {
-        WidgetWeatherData(id: "current", temperature: 00, high: 00, low: 00, condition: "Mostly Sunny", sfSymbol: "hourglass", locationName: "Unkown", windGusts: 00, isDay: true, accumDisplayString: nil, dayProse: "Fetching...", nightProse: "Fetching...", fetchedAt: Date())
+        WidgetWeatherData(id: "current", lat: 0, lon: 0, temperature: 00, high: 00, low: 00, condition: "Mostly Sunny", sfSymbol: "xmark.octagon.fill", locationName: "Unkown", windGusts: 00, isDay: true, accumDisplayString: nil, dayProse: "Fetching...", nightProse: "Fetching...", fetchedAt: Date())
     }
 }

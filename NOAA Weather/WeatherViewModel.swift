@@ -31,31 +31,26 @@ enum WeatherBackground {
 
     // Derive background from a NOAA condition string (e.g. "Mostly Sunny", "Chance Snow Showers").
     // Returns nil if condition is empty or unrecognised — caller falls back to WMO code.
-    // WeatherViewModel.swift
 
     static func fromCondition(_ condition: String) -> WeatherBackground? {
-        let c = condition.lowercased()
+        var c = condition.lowercased()
         guard !c.isEmpty else { return nil }
 
-        // Check for uncertainty in the first sentence to prioritize the sky "vibe"
-        let firstSentence = c.components(separatedBy: ". ").first ?? c
-        let isUncertain = firstSentence.contains("likely") || firstSentence.contains("chance") || firstSentence.contains("possible")
-
-        if isUncertain {
-            if c.contains("cloudy") || c.contains("overcast") || c.contains("fog") { return .clouds }
-            if c.contains("mostly") || c.contains("partly") { return .mostlySunny }
+        // Prioritize "Otherwise" if it exists
+        if let range = c.range(of: "otherwise, ") {
+            c = String(c[range.upperBound...])
         }
 
-        // Check the PRIMARY part (before the first comma) to capture the lead condition
-        // This ensures "Rain, mixed with snow" is Rain, and "Snow, mixed with rain" is Snow.
+        let firstSentence = c.components(separatedBy: ". ").first ?? c
+
         let primary = c.components(separatedBy: ",").first ?? c
         if primary.contains("thunder") || primary.contains("tstm") { return .rain }
         if primary.contains("snow") || primary.contains("flurr") || primary.contains("sleet") { return .snow }
         if primary.contains("rain") || primary.contains("shower") || primary.contains("drizzle") { return .rain }
 
-        // Broad Fallbacks
         if c.contains("snow") || c.contains("sleet") { return .snow }
         if c.contains("rain") || c.contains("shower") { return .rain }
+        if c.contains("frost") { return .sun } // Frost implies clear skies
         if c.contains("cloudy") || c.contains("overcast") || c.contains("fog") { return .clouds }
         if c.contains("mostly") || c.contains("partly") { return .mostlySunny }
         if c.contains("sunny") || c.contains("clear") || c.contains("fair") { return .sun }
@@ -67,6 +62,7 @@ enum WeatherBackground {
 @Observable
 @MainActor
 final class WeatherViewModel {
+    private var loadingTask: Task<Void, Never>?
     private var lastFetchTime: Date?
     private var lastFetchedCoordinate: CLLocationCoordinate2D?
     var isSkiResort: Bool = false
@@ -115,30 +111,27 @@ final class WeatherViewModel {
         }
 
         do {
+            // 2. Destructure correctly (Repository returns 5 items, not 4)
             let (cur, days, allHours, sun, scrapedPeriods) = try await WeatherRepository.shared.fetchAll(
                 lat: coordinate.latitude,
                 lon: coordinate.longitude
             )
 
-            // Show weather immediately
+            if Task.isCancelled { return }
+
             current = cur
             daily   = days
             sunEvent = sun
-            
-            self.hourly = hourlyWindow(from: allHours)
 
-            // Background + description from NOAA condition string, WMO code as fallback
-            let todayCondition = scrapedPeriods[todayKey()]?.dayCondition ?? ""
-            background = WeatherBackground.fromCondition(todayCondition)
+            background = WeatherBackground.fromCondition(scrapedPeriods[todayKey()]?.dayCondition ?? "")
                       ?? WeatherBackground.from(code: cur.weatherCode)
 
-            // Hourly: current hour → 11pm today
-            hourly = hourlyWindow(from: days.first?.hourlyTemps ?? [])
+            // 3. Updated for 24-hour rolling window
+            hourly = hourlyWindow(from: allHours)
             calculateGlobalBounds(days: days)
-            isLoading = false
-            lastFetchTime = Date()
             
-            updateWidget(id: activeLocationID ?? "current")
+            // 4. Save coordinates to the widget data
+            updateWidget(id: activeLocationID ?? "current", coord: coordinate)
             
             isLoading = false
             lastFetchTime = Date()
@@ -206,11 +199,13 @@ final class WeatherViewModel {
         }
     }
     
-    private func updateWidget(id: String) {
-        guard let cur = current, let firstDay = daily.first else { return }
+    private func updateWidget(id: String, coord: CLLocationCoordinate2D) {
+            guard let cur = current, let firstDay = daily.first else { return }
         
         let widgetData = WidgetWeatherData(
             id: id,
+            lat: coord.latitude,
+            lon: coord.longitude,
             temperature: cur.temperature,
             high: firstDay.high,
             low: firstDay.low,

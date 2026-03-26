@@ -9,8 +9,9 @@
 /* Begin PBXBuildFile section */
 		2324906A2F67B5DB00B5A9C7 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 232490692F67B5DB00B5A9C7 /* SwiftSoup */; };
 		2324906C2F67B5DB00B5A9C7 /* SwiftSoupProfile in Frameworks */ = {isa = PBXBuildFile; productRef = 2324906B2F67B5DB00B5A9C7 /* SwiftSoupProfile */; };
+		236527272F74A8250077C95B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 23F27F032F719E5300A2B2FE /* SwiftUI.framework */; };
+		2365272B2F74A8720077C95B /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 2365272A2F74A8720077C95B /* SwiftSoup */; };
 		23F27F022F719E5300A2B2FE /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 23F27F012F719E5200A2B2FE /* WidgetKit.framework */; };
-		23F27F042F719E5300A2B2FE /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 23F27F032F719E5300A2B2FE /* SwiftUI.framework */; };
 		23F27F152F719E5500A2B2FE /* wildcat.NOAA-Weather.widgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 23F27EFF2F719E5200A2B2FE /* wildcat.NOAA-Weather.widgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -66,6 +67,8 @@
 		23D8013A2F71F511009AD4D5 /* Exceptions for "NOAA Weather" folder in "wildcat.NOAA-Weather.widgetsExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				ForecastAnalyzer.swift,
+				WeatherModel.swift,
 				WidgetData.swift,
 			);
 			target = 23F27EFE2F719E5200A2B2FE /* wildcat.NOAA-Weather.widgetsExtension */;
@@ -136,8 +139,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				23F27F042F719E5300A2B2FE /* SwiftUI.framework in Frameworks */,
+				236527272F74A8250077C95B /* SwiftUI.framework in Frameworks */,
 				23F27F022F719E5300A2B2FE /* WidgetKit.framework in Frameworks */,
+				2365272B2F74A8720077C95B /* SwiftSoup in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -269,6 +273,7 @@
 			);
 			name = "wildcat.NOAA-Weather.widgetsExtension";
 			packageProductDependencies = (
+				2365272A2F74A8720077C95B /* SwiftSoup */,
 			);
 			productName = "wildcat.NOAA-Weather.widgetsExtension";
 			productReference = 23F27EFF2F719E5200A2B2FE /* wildcat.NOAA-Weather.widgetsExtension.appex */;
@@ -816,6 +821,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 232490682F67B5DB00B5A9C7 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
 			productName = SwiftSoupProfile;
+		};
+		2365272A2F74A8720077C95B /* SwiftSoup */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 232490682F67B5DB00B5A9C7 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
+			productName = SwiftSoup;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

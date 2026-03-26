@@ -563,18 +563,37 @@ nonisolated func weatherCategory(from condition: String) -> WeatherCategory {
 // Works on both tombstone conditions ("Mostly Sunny") and prose
 // ("This Afternoon: Mostly sunny, with a high near 42...").
 // Always returns title-cased, e.g. "Mostly Sunny".
-// In WeatherModel.swift
+// WeatherModel.swift -> extractConditionLabel function
+
 nonisolated func extractConditionLabel(from text: String) -> String {
     guard !text.isEmpty else { return text }
 
     var working = text
     
-    // Strip the prefix (e.g., "Monday: ")
+    // If the first sentence is just a "chance" but the second contains a sky state, prioritize the sky state.
+    let sentences = working.components(separatedBy: ". ")
+    if sentences.count > 1 {
+        let first = sentences[0].lowercased()
+        let second = sentences[1].lowercased()
+        let isFirstJustAChance = first.contains("chance") || first.contains("possible") || first.contains("likely")
+        let hasSkyInSecond = second.contains("sunny") || second.contains("clear") || second.contains("cloudy") || second.contains("overcast")
+        
+        if isFirstJustAChance && hasSkyInSecond {
+            working = sentences[1]
+        }
+    }
+    
+    // Handle "Otherwise," separator
+    if let otherwiseRange = working.lowercased().range(of: "otherwise, ") {
+        working = String(working[otherwiseRange.upperBound...])
+    }
+
+    // Strip prefix (e.g., "Tonight: ")
     if let colonRange = working.range(of: ": ") {
         working = String(working[colonRange.upperBound...])
     }
 
-    // Focus on the first state (Stop at "becoming", "then", or first period)
+    // Focus on first state (Stop at "becoming", "then", etc.)
     let transitionKeywords = [" becoming ", " then ", " before "]
     var firstState = working.components(separatedBy: ".").first ?? working
     
@@ -584,24 +603,14 @@ nonisolated func extractConditionLabel(from text: String) -> String {
         }
     }
 
-    // Extract primary condition before secondary descriptions (mixed with, etc.)
-    // If we have "Rain, possibly mixed with snow", we take everything before the first comma
-    // IF that first part contains a major weather keyword.
     let components = firstState.components(separatedBy: ",")
     let primaryPart = components.first?.trimmingCharacters(in: .whitespaces) ?? firstState
     
-    // Keywords to validate that the first part is actually the weather (Rain, Snow, Cloudy)
-    let weatherKeywords = ["rain", "snow", "cloudy", "sunny", "clear", "fog", "drizzle", "showers", "sleet"]
+    let weatherKeywords = ["rain", "snow", "cloudy", "sunny", "clear", "fog", "drizzle", "showers", "sleet", "frost"]
     let lowerPrimary = primaryPart.lowercased()
     
-    let finalLabel: String
-    if weatherKeywords.contains(where: { lowerPrimary.contains($0) }) {
-        finalLabel = primaryPart
-    } else {
-        finalLabel = firstState // Fallback to the whole first clause
-    }
+    let finalLabel = weatherKeywords.contains(where: { lowerPrimary.contains($0) }) ? primaryPart : firstState
 
-    // Clean up and Title Case
     return finalLabel.trimmingCharacters(in: .whitespaces)
         .split(separator: " ")
         .map { word -> String in
