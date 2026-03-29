@@ -68,7 +68,7 @@ struct Provider: AppIntentTimelineProvider {
                     locationName:       resolvedName,
                     windGusts:          cur.windGusts,
                     isDay:              cur.isDay,
-                    accumDisplayString: firstDay.accumulation.displayString.isEmpty ? nil : firstDay.accumulation.displayString,
+                    accumDisplayString: firstDay.accumulation.hasAccumulation ? firstDay.accumulation.displayString() : nil,
                     dayProse:           firstDay.dayProse,
                     nightProse:         firstDay.nightProse,
                     fetchedAt:          now
@@ -143,16 +143,20 @@ struct WidgetEntryView: View {
 
 struct LockScreenWidget: View {
     let data: WidgetWeatherData
+    private let settings = AppSettings.shared
 
     var body: some View {
-        Gauge(value: data.temperature, in: data.low...max(data.high, data.low + 1)) {
+        let temp = settings.temperature(data.temperature)
+        let lo   = settings.temperature(data.low)
+        let hi   = settings.temperature(data.high)
+        Gauge(value: temp, in: lo...max(hi, lo + 1)) {
             EmptyView()
         } currentValueLabel: {
             Image(systemName: data.sfSymbol)
         } minimumValueLabel: {
-            Text("\(Int(data.low))")
+            Text("\(Int(lo))")
         } maximumValueLabel: {
-            Text("\(Int(data.high))")
+            Text("\(Int(hi))")
         }
         .gaugeStyle(.accessoryCircular)
     }
@@ -210,11 +214,9 @@ struct MediumWidget: View {
 
 struct WeatherInfoPanel: View {
     let data: WidgetWeatherData
-    // 40 mph ≈ 64 kph — threshold scales with the stored (already-converted) value
-    private var hasWindAlert: Bool {
-        let threshold = AppSettings.shared.isMetric ? 64.0 : 40.0
-        return (data.windGusts ?? 0) >= threshold
-    }
+    private let settings = AppSettings.shared
+    // windGusts is stored raw in mph — threshold is always mph, display converts
+    private var hasWindAlert: Bool { (data.windGusts ?? 0) >= 40.0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -267,8 +269,8 @@ struct WeatherInfoPanel: View {
 
             Spacer()
 
-            // Current temperature
-            Text("\(Int(data.temperature.rounded()))°")
+            // Current temperature — raw °F, converted at display time
+            Text("\(Int(settings.temperature(data.temperature).rounded()))°")
                 .font(.system(size: 38, weight: .medium, design: .rounded))
                 .shadow(color: .black.opacity(0.25), radius: 2)
                 .frame(maxWidth: .infinity)
@@ -282,13 +284,13 @@ struct WeatherInfoPanel: View {
                         Text(accum)
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(.cyan.opacity(0.9))
-                        Text("\(Int(data.low.rounded()))° | \(Int(data.high.rounded()))°")
+                        Text("\(Int(settings.temperature(data.low).rounded()))° | \(Int(settings.temperature(data.high).rounded()))°")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     .shadow(color: .black.opacity(0.3), radius: 2)
                 } else {
-                    Text("L:\(Int(data.low.rounded()))°  H:\(Int(data.high.rounded()))°")
+                    Text("L:\(Int(settings.temperature(data.low).rounded()))°  H:\(Int(settings.temperature(data.high).rounded()))°")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.85))
                         .shadow(color: .black.opacity(0.3), radius: 2)

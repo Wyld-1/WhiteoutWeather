@@ -14,6 +14,9 @@ struct LocationPageView: View {
     @State private var viewModel = WeatherViewModel()
     @State private var selectedDay: DailyForecast?
     @State private var showDeleteConfirm = false
+    #if DEBUG
+    @State private var showDebugReset = false
+    #endif
     
     let savedLocation: SavedLocation?
     private var isCurrentLocation: Bool { savedLocation == nil }
@@ -41,6 +44,9 @@ struct LocationPageView: View {
                         if !isCurrentLocation {
                             deleteButton
                         }
+                        #if DEBUG
+                        debugResetButton
+                        #endif
                         
                         Text("Weather provided by NOAA and Open Mateo")
                             .font(.caption2)
@@ -129,8 +135,42 @@ struct LocationPageView: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
         .padding(.horizontal, 28)
-        .padding(.bottom, 15)
+        .padding(.bottom, 8)
     }
+
+    #if DEBUG
+    private var debugResetButton: some View {
+        Button {
+            showDebugReset = true
+        } label: {
+            Text("Reset App Data")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.orange)
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .padding(.horizontal, 28)
+        .padding(.bottom, 15)
+        .confirmationDialog("Reset App Data", isPresented: $showDebugReset, titleVisibility: .visible) {
+            Button("Welcome screen only", role: .destructive) {
+                NotificationCenter.default.post(
+                    name: .debugResetApp,
+                    object: DebugResetScope.welcomeOnly
+                )
+            }
+            Button("All (incl. saved locations)", role: .destructive) {
+                NotificationCenter.default.post(
+                    name: .debugResetApp,
+                    object: DebugResetScope.all
+                )
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This cannot be undone.")
+        }
+    }
+    #endif
 }
 
 // MARK: - Supporting Views
@@ -150,6 +190,7 @@ struct ErrorView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
             Button("Try Again") {
+                Haptics.shared.impact(.rigid)
                 retry()
             }
             .buttonStyle(.bordered)

@@ -15,6 +15,9 @@ import AVFoundation
 
 extension Notification.Name {
     static let refreshAllLocations = Notification.Name("refreshAllLocations")
+    #if DEBUG
+    static let debugResetApp = Notification.Name("debugResetApp")
+    #endif
 }
 
 @main
@@ -65,6 +68,13 @@ struct NOAA_WeatherApp: App {
                         }
                         #endif
                     }
+                    #if DEBUG
+                    .onReceive(NotificationCenter.default.publisher(for: .debugResetApp)) { note in
+                        if let scope = note.object as? DebugResetScope {
+                            performReset(scope: scope)
+                        }
+                    }
+                    #endif
 
                 if showWelcome {
                     WelcomeView {
@@ -75,6 +85,7 @@ struct NOAA_WeatherApp: App {
                     .zIndex(1)
                 }
             }
+            /*
             #if DEBUG
             .confirmationDialog(
                 "Reset App Data",
@@ -91,6 +102,7 @@ struct NOAA_WeatherApp: App {
                 Text("This cannot be undone.")
             }
             #endif
+             */
         }
     }
 
@@ -129,7 +141,9 @@ struct NOAA_WeatherApp: App {
         }
         showWelcome = true
     }
-
-    enum DebugResetScope { case welcomeOnly, all }
     #endif
 }
+
+#if DEBUG
+enum DebugResetScope { case welcomeOnly, all }
+#endif

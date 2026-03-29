@@ -51,10 +51,17 @@ struct AccumulationRange {
 
     var hasAccumulation: Bool { low != nil || high != nil }
 
-    /* Returns a display string like "< 1\"", "2–4 cm", "> 3\"", using the active unit label. */
-    var displayString: String {
-        let u = AppSettings.shared.accumUnit
-        switch (low, high) {
+    /* Returns a display string like "< 1\"", "2–4 cm", "> 3\"".
+     * Values are raw inches; pass settings to apply unit conversion at display time.
+     *
+     * @param settings  AppSettings instance for live unit conversion (defaults to .shared)
+     */
+    func displayString(settings: AppSettings = .shared) -> String {
+        let converted = settings.isMetric
+            ? AccumulationRange(low: low.map { $0 * 2.54 }, high: high.map { $0 * 2.54 })
+            : self
+        let u = settings.accumUnit
+        switch (converted.low, converted.high) {
         case (nil, nil):                    return ""
         case (nil, let h?):                 return "< \(fmt(h))\(u)"
         case (let l?, nil):                 return "> \(fmt(l))\(u)"

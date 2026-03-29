@@ -113,6 +113,7 @@ struct AddLocationPage: View {
                 Group {
                     if #available(iOS 26.0, *) {
                         Button(action: {
+                            Haptics.shared.impact(.medium)
                             showSearch = true
                         }) {
                             Label("Add Location", systemImage: "plus")
@@ -128,6 +129,7 @@ struct AddLocationPage: View {
                         .shadow(color: .blue.opacity(0.5), radius: 20)
                     } else {
                         Button {
+                            Haptics.shared.impact(.medium)
                             showSearch = true
                         } label: {
                                 ZStack {
@@ -184,12 +186,12 @@ struct WeatherContentView: View {
             .padding(.bottom, 4)
 
             // Versatile warning slot
+            // windGusts is raw mph — threshold is always in mph; display converts.
             Group {
-                let gustThreshold = settings.isMetric ? 64.0 : 40.0
-                if let gusts = viewModel.current?.windGusts, gusts >= gustThreshold {
+                if let gusts = viewModel.current?.windGusts, gusts >= 40.0 {
                     WeatherAlertBanner(
                         title: viewModel.isSkiResort ? "Wind Hold Risk": "High Wind Alert",
-                        message: "Gusts up to \(Int(gusts.rounded())) \(settings.windUnit)",
+                        message: "Gusts up to \(Int(settings.windSpeed(gusts).rounded())) \(settings.windUnit)",
                         tintColor: viewModel.isSkiResort ? .red: .yellow,
                         warningSymbol: "wind.circle.fill"
                     )
@@ -209,7 +211,10 @@ struct WeatherContentView: View {
                 )
                 .padding(.horizontal, 16)
                 .onTapGesture {
-                    if let today = viewModel.daily.first { selectedDay = today }
+                    if let today = viewModel.daily.first {
+                        Haptics.shared.impact(.light)
+                        selectedDay = today
+                    }
                 }
             }
 
@@ -253,6 +258,7 @@ struct CurrentConditionsHeader: View {
     let current: CurrentConditions?
     let high: Double?
     let low: Double?
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         VStack(spacing: 4) {
@@ -274,7 +280,7 @@ struct CurrentConditionsHeader: View {
                     .shadow(radius: 4)
             }
             
-            Text(current.map { "\(Int($0.temperature.rounded()))°" } ?? "—")
+            Text(current.map { "\(Int(settings.temperature($0.temperature).rounded()))°" } ?? "—")
                 .font(.system(size: 96, weight: .thin))
                 .foregroundStyle(.white)
                 .shadow(radius: 6)
@@ -284,7 +290,7 @@ struct CurrentConditionsHeader: View {
                 .shadow(radius: 3)
             
             if let h = high, let l = low {
-                Text("L:\(Int(l.rounded()))°  H:\(Int(h.rounded()))°")
+                Text("L:\(Int(settings.temperature(l).rounded()))°  H:\(Int(settings.temperature(h).rounded()))°")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .shadow(radius: 3)
@@ -462,7 +468,7 @@ struct HourlyCell: View {
             Image(systemName: wmoSFSymbol(code: hour.weatherCode, isDay: isDay))
                 .symbolRenderingMode(.multicolor)
                 .font(.system(size: 22)).frame(height: 26)
-            Text("\(Int(hour.temperature.rounded()))°")
+            Text("\(Int(settings.temperature(hour.temperature).rounded()))°")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.white)
         }
@@ -489,6 +495,7 @@ struct DailyCard: View {
                 VStack(spacing: 0) {
                     ForEach(Array(days.prefix(7).enumerated()), id: \.offset) { idx, day in
                         Button {
+                            Haptics.shared.impact(.light)
                             onSelect(day)
                         } label: {
                             DailyRow(day: day, globalLow: globalLow, globalHigh: globalHigh)
@@ -512,6 +519,7 @@ struct DailyRow: View {
     let day: DailyForecast
     let globalLow: Double
     let globalHigh: Double
+    @EnvironmentObject private var settings: AppSettings
     
     private var dayName: String {
         let f = DateFormatter(); f.dateFormat = "EEE"
@@ -519,6 +527,12 @@ struct DailyRow: View {
     }
 
     var body: some View {
+        // Convert raw imperial values to display values once, reactively.
+        let dispHigh   = settings.temperature(day.high)
+        let dispLow    = settings.temperature(day.low)
+        let dispGHigh  = settings.temperature(globalHigh)
+        let dispGLow   = settings.temperature(globalLow)
+
         HStack(spacing: 0) {
             Text(Calendar.current.isDateInToday(day.date) ? "Today" : dayName)
                 .font(.system(size: 17, weight: .medium))
@@ -562,19 +576,19 @@ struct DailyRow: View {
                 HStack(spacing: 6) {
                     Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake")
                         .font(.system(size: 12, weight: .bold)).foregroundStyle(.cyan)
-                    Text(day.accumulation.displayString)
+                    Text(day.accumulation.displayString(settings: settings))
                         .font(.system(size: 14, weight: .semibold)).foregroundStyle(.cyan)
-                    Text("\(Int(day.low.rounded()))° | \(Int(day.high.rounded()))°")
+                    Text("\(Int(dispLow.rounded()))° | \(Int(dispHigh.rounded()))°")
                         .font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.6))
                         .frame(width: 60, alignment: .trailing)
                 }
             } else {
-                Text("\(Int(day.low.rounded()))°")
+                Text("\(Int(dispLow.rounded()))°")
                     .font(.system(size: 17, weight: .medium)).foregroundStyle(.white.opacity(0.55))
                     .frame(width: 36, alignment: .trailing)
-                TempRangeBar(low: day.low, high: day.high, globalLow: globalLow, globalHigh: globalHigh)
+                TempRangeBar(low: dispLow, high: dispHigh, globalLow: dispGLow, globalHigh: dispGHigh)
                     .frame(width: 72, height: 8).padding(.horizontal, 6)
-                Text("\(Int(day.high.rounded()))°")
+                Text("\(Int(dispHigh.rounded()))°")
                     .font(.system(size: 17, weight: .medium)).foregroundStyle(.white)
                     .frame(width: 36, alignment: .leading)
             }
@@ -630,12 +644,12 @@ struct WindCard: View {
                     VStack(alignment: .leading, spacing: 0) {
                         WindStatRow(
                             label: "Wind",
-                            value: "\(Int(windSpeed.rounded())) \(settings.windUnit)"
+                            value: "\(Int(settings.windSpeed(windSpeed).rounded())) \(settings.windUnit)"
                         )
                         Divider().background(.white.opacity(0.12))
                         WindStatRow(
                             label: "Gusts",
-                            value: "\(Int(windGusts.rounded())) \(settings.windUnit)"
+                            value: "\(Int(settings.windSpeed(windGusts).rounded())) \(settings.windUnit)"
                         )
                         Divider().background(.white.opacity(0.12))
                         WindStatRow(
@@ -970,12 +984,18 @@ struct DayDetailPage: View {
     let day: DailyForecast
     let globalLow: Double
     let globalHigh: Double
+    @EnvironmentObject private var settings: AppSettings
 
     private var fullDayName: String {
         let f = DateFormatter(); f.dateFormat = "EEEE, MMM d"; return f.string(from: day.date)
     }
 
     var body: some View {
+        let dispHigh  = settings.temperature(day.high)
+        let dispLow   = settings.temperature(day.low)
+        let dispGHigh = settings.temperature(globalHigh)
+        let dispGLow  = settings.temperature(globalLow)
+
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
 
@@ -984,10 +1004,10 @@ struct DayDetailPage: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(fullDayName).font(.system(size: 22, weight: .semibold))
                         HStack(spacing: 16) {
-                            Label("\(Int(day.high.rounded()))°", systemImage: "arrow.up")
+                            Label("\(Int(dispHigh.rounded()))°", systemImage: "arrow.up")
                                 .font(.system(size: 17))
                                 .foregroundStyle(.orange)
-                            Label("\(Int(day.low.rounded()))°", systemImage: "arrow.down")
+                            Label("\(Int(dispLow.rounded()))°", systemImage: "arrow.down")
                                 .font(.system(size: 17))
                                 .foregroundStyle(.cyan)
                         }
@@ -1007,7 +1027,7 @@ struct DayDetailPage: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 4)
-                        InteractiveTempGraph(points: day.hourlyTemps, globalLow: globalLow, globalHigh: globalHigh)
+                        InteractiveTempGraph(points: day.hourlyTemps, globalLow: dispGLow, globalHigh: dispGHigh)
                             .frame(height: 160)
                     }
                     .padding(16)
@@ -1020,7 +1040,7 @@ struct DayDetailPage: View {
                     HStack(spacing: 8) {
                         Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake")
                             .foregroundStyle(.cyan)
-                        Text("Accumulation: \(day.accumulation.displayString)")
+                        Text("Accumulation: \(day.accumulation.displayString(settings: settings))")
                             .font(.system(size: 15, weight: .semibold)).foregroundStyle(.cyan)
                     }
                     .padding(.horizontal, 20)
@@ -1082,8 +1102,9 @@ struct ForecastProseCard: View {
 
 struct InteractiveTempGraph: View {
     let points: [HourlyForecast]
-    let globalLow: Double
-    let globalHigh: Double
+    let globalLow: Double   // already converted to display units by caller
+    let globalHigh: Double  // already converted to display units by caller
+    @EnvironmentObject private var settings: AppSettings
 
     @State private var dragX: CGFloat? = nil
     private let topPad: CGFloat = 28
@@ -1113,8 +1134,9 @@ struct InteractiveTempGraph: View {
             let displayPoints = coarsePoints
             
             let pts: [(CGFloat, CGFloat)] = displayPoints.enumerated().map { idx, p in
-                let x = sidePad + plotW * CGFloat(idx) / CGFloat(max(displayPoints.count - 1, 1))
-                let y = topPad + plotH * CGFloat(1 - (p.temperature - globalLow) / range)
+                let x    = sidePad + plotW * CGFloat(idx) / CGFloat(max(displayPoints.count - 1, 1))
+                let disp = settings.temperature(p.temperature)
+                let y    = topPad + plotH * CGFloat(1 - (disp - globalLow) / range)
                 return (x, y)
             }
 
@@ -1150,7 +1172,8 @@ struct InteractiveTempGraph: View {
                 }
 
                 if let idx = hovIdx, idx < pts.count {
-                    let px = pts[idx].0; let py = pts[idx].1; let temp = displayPoints[idx].temperature
+                    let px = pts[idx].0; let py = pts[idx].1
+                    let temp = settings.temperature(displayPoints[idx].temperature)
                     Path { p in p.move(to: CGPoint(x: px, y: topPad)); p.addLine(to: CGPoint(x: px, y: topPad + plotH)) }
                         .stroke(Color.white.opacity(0.7), lineWidth: 5)
 

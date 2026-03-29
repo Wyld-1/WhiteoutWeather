@@ -58,24 +58,6 @@
 				<string>24</string>
 			</array>
 		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSGroupSpecifier</string>
-			<key>Title</key>
-			<string>Developer</string>
-			<key>FooterText</key>
-			<string>Only active in debug builds.</string>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSToggleSwitchSpecifier</string>
-			<key>Title</key>
-			<string>Reset App Data</string>
-			<key>Key</key>
-			<string>debugResetTrigger</string>
-			<key>DefaultValue</key>
-			<false/>
-		</dict>
 	</array>
 </dict>
 </plist>

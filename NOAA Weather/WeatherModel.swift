@@ -170,15 +170,14 @@ actor WeatherRepository {
             .compactMap { $0 }
             .first(where: { !$0.isEmpty }) ?? ""
 
-        let s = AppSettings.shared
         let c = om.current
         return CurrentConditions(
-            temperature:        s.temperature(c.temperature2m),
+            temperature:        c.temperature2m,
             description:        condition.isEmpty
                                     ? wmoDescription(code: c.weatherCode, isDay: c.isDay == 1)
                                     : extractConditionLabel(from: condition),
-            windSpeed:          s.windSpeed(c.windSpeed10m),
-            windGusts:          s.windSpeed(c.windGusts10m),
+            windSpeed:          c.windSpeed10m,
+            windGusts:          c.windGusts10m,
             windDirection:      c.windDirection10m,
             windDirectionLabel: compassDirection(from: c.windDirection10m),
             humidity:           c.relativeHumidity2m,
@@ -192,12 +191,11 @@ actor WeatherRepository {
      */
     private func buildHourly(om: OpenMeteoResponse, tz: TimeZone) -> [HourlyForecast] {
         let fmt = localDateFormatter(format: "yyyy-MM-dd'T'HH:mm", tz: tz)
-        let s   = AppSettings.shared
         return om.hourly.time.enumerated().compactMap { i, str in
             guard let date = fmt.date(from: str) else { return nil }
             return HourlyForecast(
                 time:                     date,
-                temperature:              s.temperature(om.hourly.temperature2m[i]),
+                temperature:              om.hourly.temperature2m[i],
                 weatherCode:              om.hourly.weatherCode[i],
                 precipitationProbability: om.hourly.precipitationProbability[i]
             )
@@ -220,7 +218,6 @@ actor WeatherRepository {
         let sunFmt = localDateFormatter(format: "yyyy-MM-dd'T'HH:mm", tz: tz)
         var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
 
-        let s = AppSettings.shared
         var days: [DailyForecast] = []
         for i in 0..<om.daily.time.count {
             let dateStr = om.daily.time[i]
@@ -268,26 +265,16 @@ actor WeatherRepository {
             let rowNightSymbol: String? = noaaData?.isNightSevere == true ? nightSymbol : nil
             let condLabel = !dayCond.isEmpty ? dayCond : wmoDescription(code: wmoCode, isDay: true)
 
-            // Convert accumulation bounds to the active unit system
-            let convertedAccum: AccumulationRange = {
-                let raw = noaaData?.accumulation ?? .none
-                guard raw.hasAccumulation else { return .none }
-                return AccumulationRange(
-                    low:  s.accumulation(raw.low),
-                    high: s.accumulation(raw.high)
-                )
-            }()
-
             days.append(DailyForecast(
                 id:               UUID(),
                 date:             date,
-                high:             s.temperature(high),
-                low:              s.temperature(low),
+                high:             high,
+                low:              low,
                 precipProbability: noaaData?.precipChance ?? 0,
                 shortForecast:    extractConditionLabel(from: condLabel),
                 dayProse:         dayProse,
                 nightProse:       noaaData?.nightProse ?? "",
-                accumulation:     convertedAccum,
+                accumulation:     noaaData?.accumulation ?? .none,
                 precipType:       noaaData?.precipType ?? .none,
                 isNightSevere:    noaaData?.isNightSevere ?? false,
                 daySymbol:        daySymbol,

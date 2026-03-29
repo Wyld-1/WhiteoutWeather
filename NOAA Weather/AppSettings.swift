@@ -8,6 +8,38 @@
 
 import Foundation
 import Combine
+import UIKit
+import WidgetKit
+
+// MARK: - Haptics
+
+/* Thin wrapper around UIImpactFeedbackGenerator and UINotificationFeedbackGenerator.
+ * Call Haptics.shared.impact() or .notification() from any view.
+ * Generators are prepared lazily and reused to minimise latency.
+ */
+final class Haptics {
+    static let shared = Haptics()
+    private let light   = UIImpactFeedbackGenerator(style: .light)
+    private let medium  = UIImpactFeedbackGenerator(style: .medium)
+    private let rigid   = UIImpactFeedbackGenerator(style: .rigid)
+    private let notif   = UINotificationFeedbackGenerator()
+
+    private init() {
+        light.prepare(); medium.prepare(); rigid.prepare(); notif.prepare()
+    }
+
+    func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        switch style {
+        case .light:  light.impactOccurred()
+        case .rigid:  rigid.impactOccurred()
+        default:      medium.impactOccurred()
+        }
+    }
+
+    func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        notif.notificationOccurred(type)
+    }
+}
 
 enum UnitSystem: String {
     case us     = "us"      // °F, mph, inches
@@ -61,11 +93,14 @@ final class AppSettings: ObservableObject {
         self.timeFormat = TimeFormat(rawValue: savedTime) ?? .twelve
     }
 
-    /* Syncs current settings to the App Group container so the widget can read them. */
+    /* Syncs current settings to the App Group container so the widget can read them.
+     * Also invalidates widget timelines so the next render uses the new unit system.
+     */
     private func mirrorToAppGroup() {
         guard let groupDefaults = UserDefaults(suiteName: groupID) else { return }
         groupDefaults.set(unitSystem.rawValue, forKey: unitKey)
         groupDefaults.set(timeFormat.rawValue, forKey: timeKey)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /* Called on app foreground to pick up any changes made in System Settings while suspended.

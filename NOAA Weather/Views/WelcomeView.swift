@@ -72,7 +72,7 @@ struct WelcomeView: View {
                 )
                 .padding(.horizontal, 24)
 
-                Button(action: onDismiss) {
+                Button(action: { Haptics.shared.notification(.success); onDismiss() }) {
                     Text("Get Started")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(.black)
