@@ -28,20 +28,24 @@ struct ContentView: View {
         return 0
     }
 
+    // Tracks whether the currently-visible page has a light background,
+    // so PageDotsView can flip its dot/icon colors for legibility.
+    @State private var isLightBackground = false
+
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedID) {
                 // Current Location Page
-                LocationPageView(savedLocation: nil)
+                LocationPageView(savedLocation: nil, onBackgroundChange: { isLightBackground = $0 })
                     .tag("current" as String?)
 
                 // Saved Location Pages
                 ForEach(store.saved) { loc in
-                    LocationPageView(savedLocation: loc)
+                    LocationPageView(savedLocation: loc, onBackgroundChange: { isLightBackground = $0 })
                         .tag(loc.id.uuidString as String?)
                 }
 
-                // Add Location Page
+                // Add Location Page — always dark (clear day gradient)
                 AddLocationPage(onAdded: {
                     if let newest = store.saved.last {
                         selectedID = newest.id.uuidString
@@ -51,12 +55,16 @@ struct ContentView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
+            // Reset brightness hint when swiping so there's no stale state
+            // while the new page is still loading.
+            .onChange(of: selectedID) { isLightBackground = false }
             
-            HStack{
+            HStack {
                 Spacer()
                 PageDotsView(
                     count: pageCount,
                     currentIndex: currentIndex,
+                    isLightBackground: isLightBackground,
                     onSelectIndex: { newIndex in
                         selectedID = idForIndex(newIndex)
                     }
@@ -64,7 +72,7 @@ struct ContentView: View {
                 Spacer()
             }
         }
-        .onAppear{
+        .onAppear {
             locationManager.requestLocation()
         }
     }
@@ -86,6 +94,7 @@ struct PageDotsView: View
 {
     let count: Int
     let currentIndex: Int
+    let isLightBackground: Bool
     let onSelectIndex: (Int) -> Void
 
     @State private var dragPreviewIndex: Int?
@@ -138,6 +147,10 @@ struct PageDotsView: View
         .frame(width: controlWidth, height: 42)
     }
 
+    // Foreground colors flip between white-on-dark and near-black-on-light.
+    private var primaryColor: Color   { isLightBackground ? Color.black.opacity(0.75) : .white }
+    private var secondaryColor: Color { isLightBackground ? Color.black.opacity(0.35) : .white.opacity(0.45) }
+
     @ViewBuilder
     private func dotView(for index: Int) -> some View
     {
@@ -147,25 +160,28 @@ struct PageDotsView: View
         {
             Image(systemName: "location.fill")
                 .font(.system(size: iconSize))
-                .foregroundStyle(isSelected ? .white : .white.opacity(0.45))
+                .foregroundStyle(isSelected ? primaryColor : secondaryColor)
                 .scaleEffect(isSelected ? 1.08 : 1.0)
                 .animation(.easeInOut(duration: 0.16), value: displayIndex)
+                .animation(.easeInOut(duration: 0.3), value: isLightBackground)
         }
         else if index == count - 1
         {
             Image(systemName: "plus")
                 .font(.system(size: iconSize, weight: .heavy))
-                .foregroundStyle(isSelected ? .white : .white.opacity(0.45))
+                .foregroundStyle(isSelected ? primaryColor : secondaryColor)
                 .scaleEffect(isSelected ? 1.08 : 1.0)
                 .animation(.easeInOut(duration: 0.16), value: displayIndex)
+                .animation(.easeInOut(duration: 0.3), value: isLightBackground)
         }
         else
         {
             Circle()
-                .fill(isSelected ? .white : .white.opacity(0.45))
+                .fill(isSelected ? primaryColor : secondaryColor)
                 .frame(width: itemSize, height: itemSize)
                 .scaleEffect(isSelected ? 1.08 : 1.0)
                 .animation(.easeInOut(duration: 0.16), value: displayIndex)
+                .animation(.easeInOut(duration: 0.3), value: isLightBackground)
         }
     }
 
@@ -180,12 +196,22 @@ struct PageDotsView: View
         }
         else
         {
+            // On light backgrounds use a thin dark material instead of the
+            // bright white ultraThickMaterial, which glows badly over snow/clear-day.
             Capsule()
-                .fill(.ultraThinMaterial)
+                .fill(isLightBackground
+                    ? AnyShapeStyle(Color.black.opacity(0.15))
+                    : AnyShapeStyle(Material.ultraThinMaterial))
                 .overlay(
                     Capsule()
-                        .stroke(.white.opacity(0.15), lineWidth: 1)
+                        .stroke(
+                            isLightBackground
+                                ? Color.black.opacity(0.12)
+                                : Color.white.opacity(0.15),
+                            lineWidth: 1
+                        )
                 )
+                .animation(.easeInOut(duration: 0.3), value: isLightBackground)
         }
     }
 
@@ -195,7 +221,12 @@ struct PageDotsView: View
         if #available(iOS 26.0, *)
         {
             Capsule()
-                .stroke(.white.opacity(0.08), lineWidth: 0.75)
+                .stroke(
+                    isLightBackground
+                        ? Color.black.opacity(0.06)
+                        : Color.white.opacity(0.08),
+                    lineWidth: 0.75
+                )
         }
     }
 
@@ -258,17 +289,13 @@ struct AddLocationPage: View {
     @State private var showSearch = false
     @State private var isAnimating = false
 
-    // Season for the add-location background — use the device’s local timezone.
-    private var currentSeason: WeatherSeason {
-        WeatherSeason.from(utcOffsetSeconds: TimeZone.current.secondsFromGMT())
-    }
-
     var body: some View {
         ZStack {
-            ImageBackgroundView(imageName: backgroundImageName(season: currentSeason, condition: .clear))
-                .ignoresSafeArea()
-            LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.6)],
-                           startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+            // Add-location page: clear sky, time-of-day resolved from device clock.
+            GradientBackgroundView(
+                condition: .clear,
+                timeOfDay: WeatherTimeOfDay.from(sun: nil, utcOffsetSeconds: TimeZone.current.secondsFromGMT())
+            )
 
             VStack(spacing: 30) {
                 Spacer()
@@ -1011,7 +1038,7 @@ struct SunOrbitalView: View {
                     p.addArc(center: center, radius: radius, startAngle: .degrees(startAngle), endAngle: .degrees(currentAngle), clockwise: false)
                 }
                 .stroke(
-                    LinearGradient(colors: [.barrelRed, .yellow], startPoint: .leading, endPoint: .trailing),
+                    LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing),
                     style: StrokeStyle(lineWidth: 6, lineCap: .round)
                 )
                 .blur(radius: 3)

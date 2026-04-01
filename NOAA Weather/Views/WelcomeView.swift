@@ -17,10 +17,8 @@ struct WelcomeView: View {
 
     var body: some View {
         ZStack {
-            ImageBackgroundView(imageName: "winterDayMostlyClear")
+            GradientBackgroundView(condition: .clear, timeOfDay: .day)
                 .ignoresSafeArea()
-
-            Color.black.opacity(0.4).ignoresSafeArea()
 
             VStack(spacing: 28) {
                 Spacer()

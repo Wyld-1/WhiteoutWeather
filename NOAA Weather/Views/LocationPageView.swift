@@ -19,6 +19,7 @@ struct LocationPageView: View {
     #endif
     
     let savedLocation: SavedLocation?
+    let onBackgroundChange: ((Bool) -> Void)?
     private var isCurrentLocation: Bool { savedLocation == nil }
     
     private var coordinate: CLLocationCoordinate2D? {
@@ -27,10 +28,12 @@ struct LocationPageView: View {
 
     var body: some View {
         ZStack {
-            // Background
-            ImageBackgroundView(imageName: viewModel.backgroundImageName)
-                .ignoresSafeArea()
-            Color.black.opacity(0.35).ignoresSafeArea()
+            // Background gradient — condition + time-of-day resolved live
+            GradientBackgroundView(
+                condition: viewModel.weatherCondition,
+                timeOfDay: viewModel.weatherTimeOfDay
+            )
+            .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Pinned header — always visible, never scrolls
@@ -45,7 +48,7 @@ struct LocationPageView: View {
                 .padding(.top, 8)
                 
                 Capsule()
-                    .fill(.white.opacity(0.7))
+                    .fill(.black.opacity(0.3))
                     .frame(width: 300, height: 3)
                     .padding(.bottom, 8)
 
@@ -80,8 +83,8 @@ struct LocationPageView: View {
 
                         Text("Weather provided by NOAA and Open-Meteo")
                             .font(.caption2)
-                            .foregroundStyle(.gray)
-                            .shadow(color: .black, radius: 3)
+                            .foregroundStyle(.white.opacity(0.8))
+                            .shadow(color: .black, radius: 1)
                             .padding(.bottom, 60)
                     }
                     .refreshable {
@@ -111,6 +114,14 @@ struct LocationPageView: View {
         }
         .task(id: coordinate?.latitude) {
             triggerFetch()
+        }
+        // Notify ContentView when background brightness changes so PageDotsView
+        // can adapt its colors. Fire on both condition and time-of-day changes.
+        .onChange(of: viewModel.isLightBackground) { _, newValue in
+            onBackgroundChange?(newValue)
+        }
+        .onAppear {
+            onBackgroundChange?(viewModel.isLightBackground)
         }
         // Refresh on the 15-min timer and on settings changes (units, time format).
         // skipGeocode only for saved locations whose name is already known.

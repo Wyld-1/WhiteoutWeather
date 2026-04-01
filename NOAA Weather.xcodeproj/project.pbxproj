@@ -69,6 +69,7 @@
 			membershipExceptions = (
 				AppSettings.swift,
 				ForecastAnalyzer.swift,
+				Views/WeatherGradients.swift,
 				WeatherModel.swift,
 				WidgetData.swift,
 			);

@@ -153,3 +153,126 @@ nonisolated func noaaSFSymbol(condition: String, isDay: Bool) -> String? {
 
     return symbol(for: dominant) ?? (parts.count > 1 ? symbol(for: c) : nil)
 }
+
+// MARK: - WeatherTimeOfDay
+
+/* Time-of-day slot used to select the background image.
+ * Sunrise: roughly 30 min before until 30 min after actual sunrise.
+ * Night:   after sunset or before sunrise window.
+ * Day:     everything else.
+ */
+enum WeatherTimeOfDay: String {
+    case day     = "Day"
+    case night   = "Night"
+    case sunrise = "Sunrise"
+
+    /* Derives the time slot from a SunEvent and the current UTC time,
+     * adjusted for the location's timezone offset.
+     *
+     * @param sun              today's sunrise/sunset times
+     * @param utcOffsetSeconds the location's UTC offset from Open-Meteo
+     */
+    static func from(sun: SunEvent?, utcOffsetSeconds: Int) -> WeatherTimeOfDay {
+        guard let sun = sun else { return .day }
+        let now = Date()
+        let sunriseWindow: TimeInterval = 35 * 60   // ±35 min around sunrise
+        let nearSunrise = abs(now.timeIntervalSince(sun.sunrise)) < sunriseWindow
+        if nearSunrise { return .sunrise }
+        let isNight = now < sun.sunrise || now > sun.sunset
+        return isNight ? .night : .day
+    }
+}
+
+extension WeatherTimeOfDay {
+    static func from(isDay: Bool) -> WeatherTimeOfDay {
+        return isDay ? .day : .night
+    }
+}
+
+// MARK: - WeatherCondition
+
+enum WeatherCondition {
+    case clear, mostlyClear, overcast, rain, snow, fog, wind, thunderstorm
+
+    /* Derives the current conditoins from a NOAA tombstone or prose condition string.
+     * Returns nil when the string is empty or unrecognised — caller falls back to WMO.
+     */
+    static func fromCondition(_ condition: String) -> WeatherCondition? {
+        let c = condition.lowercased()
+        guard !c.isEmpty else { return nil }
+
+        // For "X then Y" tombstones, the post-"then" segment is the dominant afternoon state.
+        let parts    = c.components(separatedBy: " then ")
+        let dominant = parts.last ?? c
+
+        func background(for s: String) -> WeatherCondition? {
+            // Severe weather
+            if s.contains("thunder") || s.contains("tstm")                  { return .thunderstorm }
+            if s.contains("blizzard") || s.contains("heavy snow")           { return .snow }
+            if s.contains("blowing snow") || s.contains("drifting snow")    { return .snow }
+            if s.contains("freezing rain") || s.contains("fzra")            { return .rain }
+            if s.contains("freezing drizzle") || s.contains("fzdz")         { return .rain }
+            if s.contains("sleet") || s.contains("ice pellet")              { return .rain }
+            
+            // Per your request: Any snow/mix returns .snow for the whiteish gradient vibes
+            if s.contains("wintry mix") || s.contains("rain/snow") ||
+               s.contains("rain and snow") || s.contains("snow and rain")   { return .snow }
+            
+            if s.contains("snow likely")                                    { return .snow }
+
+            // Sky condition checked before generic precipitation
+            if s.contains("partly sunny") || s.contains("partly cloudy")    { return .mostlyClear }
+            if s.contains("mostly sunny") || s.contains("mostly clear")     { return .mostlyClear }
+            if s.contains("mostly cloudy") || s.contains("considerable cloudiness") { return .overcast }
+            if s.contains("sunny") || s.contains("clear") || s.contains("fair") { return .clear }
+            if s.contains("cloudy") || s.contains("overcast") ||
+               s.contains("increasing clouds")                              { return .overcast }
+
+            // Snow
+            if s.contains("snow shower")                                    { return .snow }
+            if s.contains("flurr")                                          { return .snow }
+            if s.contains("snow")                                           { return .snow }
+
+            // Rain
+            if s.contains("heavy rain")                                     { return .rain }
+            if s.contains("rain shower") || s.contains("shower")            { return .rain }
+            if s.contains("drizzle")                                        { return .rain }
+            if s.contains("rain")                                           { return .rain }
+
+            // Atmosphere
+            if s.contains("dense fog") || s.contains("patchy fog") || s.contains("fog") || s.contains("mist") { return .fog }
+            if s.contains("haze") || s.contains("smoke") || s.contains("dust") { return .fog }
+
+            return nil
+        }
+
+        return background(for: dominant) ?? (parts.count > 1 ? background(for: c) : nil)
+    }
+
+    /* Derives the condition from an Open-Meteo WMO weather code. */
+    static func fromWMO(code: Int) -> WeatherCondition {
+        switch code {
+        case 95...99:             return .thunderstorm
+        case 71...77, 85, 86:     return .snow
+        case 51...67, 80...82:    return .rain
+        case 45, 48:              return .fog
+        case 3:                   return .overcast
+        case 1, 2:                return .mostlyClear
+        default:                  return .clear
+        }
+    }
+
+    /* Asset name suffix, e.g. "Clear", "Thunderstorm". */
+    var assetSuffix: String {
+        switch self {
+        case .clear:         return "Clear"
+        case .mostlyClear:   return "MostlyClear"
+        case .overcast:      return "Overcast"
+        case .rain:          return "Rain"
+        case .snow:          return "Snow"
+        case .fog:           return "Fog"
+        case .wind:          return "Wind"
+        case .thunderstorm:  return "Thunderstorm"
+        }
+    }
+}

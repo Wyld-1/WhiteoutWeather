@@ -178,7 +178,6 @@ struct SmallWidget: View {
 
     var body: some View {
         WeatherInfoPanel(data: entry.data)
-            .foregroundStyle(.white)
     }
 }
 
@@ -212,10 +211,9 @@ struct MediumWidget: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
-            .padding(.top, 4)
+            .padding(.top, 12)
         }
         .foregroundStyle(.white)
-        .padding(.top, 4)
     }
 }
 
@@ -225,11 +223,10 @@ struct MediumWidget: View {
 struct WeatherInfoPanel: View {
     let data: WidgetWeatherData
     private let settings = AppSettings.shared
-    // windGusts is stored raw in mph — threshold is always mph, display converts
     private var hasWindAlert: Bool { (data.windGusts ?? 0) >= 40.0 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             // Top bar holds location indicator + location name + alerts
             HStack(spacing: 4) {
                 if data.id == "current" {
@@ -253,8 +250,6 @@ struct WeatherInfoPanel: View {
             }
             .shadow(color: .black.opacity(0.3), radius: 2)
             
-            Spacer()
-
             // Middle: SF symbol + precip
             VStack(spacing: 4) {
                 Image(systemName: data.sfSymbol)
@@ -267,25 +262,21 @@ struct WeatherInfoPanel: View {
                     HStack(spacing: 3) {
                         Image(systemName: "drop.fill")
                             .font(.system(size: 9))
-                            .foregroundStyle(Color(red: 0.82, green: 0.28, blue: 0.22))
+                            .foregroundStyle(.cyan)
                         Text("\(data.precipProbability)%")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.82, green: 0.28, blue: 0.22))
+                            .foregroundStyle(.cyan)
                     }
                     .shadow(color: .black.opacity(0.2), radius: 1)
                 }
             }
             .padding(.top, 4)
 
-            Spacer()
-
             // Current temperature — raw °F, converted at display time
             Text("\(Int(settings.temperature(data.temperature).rounded()))°")
                 .font(.system(size: 38, weight: .medium, design: .rounded))
                 .shadow(color: .black.opacity(0.25), radius: 2)
                 .frame(maxWidth: .infinity)
-
-            Spacer()
 
             // Accumulation or H/L
             Group {
@@ -307,7 +298,6 @@ struct WeatherInfoPanel: View {
                 }
             }
         }
-        .padding(.vertical, 12)
         .padding(.horizontal, 20)
     }
 }
@@ -319,24 +309,13 @@ struct WidgetBackground: View {
     let isDay: Bool
 
     var body: some View {
+        // Default to .clear if the string doesn't match
+        let resolvedCondition = WeatherCondition.fromCondition(condition) ?? .clear
+        
+        let resolvedTime = WeatherTimeOfDay.from(isDay: isDay)
+        
+        let colors = weatherGradientColors(condition: resolvedCondition, timeOfDay: resolvedTime)
+        
         LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var colors: [Color] {
-        let c = condition.lowercased()
-        if c.contains("snow") || c.contains("sleet") || c.contains("flurr") {
-            return [Color(white: 0.88), Color(white: 0.65)]
-        }
-        if c.contains("rain") || c.contains("drizzle") || c.contains("storm") || c.contains("thunder") {
-            return [Color(red: 0.12, green: 0.18, blue: 0.28), Color(red: 0.30, green: 0.38, blue: 0.50)]
-        }
-        if !isDay {
-            return [Color(red: 0.02, green: 0.05, blue: 0.15), Color(red: 0.08, green: 0.10, blue: 0.25)]
-        }
-        if c.contains("clear") || c.contains("sunny") || c.contains("fair") {
-            return [Color(red: 0.20, green: 0.55, blue: 0.95), Color(red: 0.85, green: 0.75, blue: 0.50)]
-        }
-        // Cloudy / overcast / default
-        return [Color(white: 0.7), Color(white: 0.5)]
     }
 }

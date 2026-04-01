@@ -20,6 +20,7 @@ import SwiftUI
  *
  * Fog maps to overcast. Wind is not used (caller should map it before calling).
  */
+
 func weatherGradientColors(condition: WeatherCondition, timeOfDay: WeatherTimeOfDay) -> [Color] {
     switch timeOfDay {
 
@@ -29,49 +30,48 @@ func weatherGradientColors(condition: WeatherCondition, timeOfDay: WeatherTimeOf
     case .day:
         switch condition {
         case .clear:
-            // Vivid alpine blue sky, brighter at top
+            // Vivid alpine blue to a warm, sun-kissed yellow horizon
             return [
-                Color(red: 0.18, green: 0.52, blue: 0.92),
-                Color(red: 0.42, green: 0.73, blue: 0.98),
-                Color(red: 0.72, green: 0.88, blue: 1.00),
+                Color(red: 0.12, green: 0.45, blue: 0.88),
+                Color(red: 0.35, green: 0.68, blue: 0.96),
+                Color(red: 1.00, green: 0.95, blue: 0.82),
             ]
         case .mostlyClear:
-            // Blue sky with a touch of haze / light cloud
+            // Bright sky blue with a softer, paler horizon
             return [
-                Color(red: 0.25, green: 0.58, blue: 0.90),
-                Color(red: 0.52, green: 0.76, blue: 0.96),
-                Color(red: 0.80, green: 0.90, blue: 0.98),
+                Color(red: 0.20, green: 0.55, blue: 0.90),
+                Color(red: 0.50, green: 0.78, blue: 0.98),
+                Color(red: 0.92, green: 0.96, blue: 1.00),
             ]
         case .overcast, .fog:
-            // Steel blue-grey, flat and muted
+            // Heavy, low-ceiling charcoal and slate. Moody and flat.
             return [
-                Color(red: 0.36, green: 0.42, blue: 0.52),
-                Color(red: 0.52, green: 0.58, blue: 0.66),
-                Color(red: 0.68, green: 0.72, blue: 0.76),
+                Color(red: 0.22, green: 0.25, blue: 0.30),
+                Color(red: 0.35, green: 0.38, blue: 0.45),
+                Color(red: 0.48, green: 0.52, blue: 0.58),
             ]
         case .rain:
-            // Dark stormy blue-grey
+            // Deep, wet navy and cool slate.
             return [
-                Color(red: 0.14, green: 0.20, blue: 0.32),
-                Color(red: 0.24, green: 0.32, blue: 0.46),
-                Color(red: 0.38, green: 0.46, blue: 0.58),
+                Color(red: 0.10, green: 0.15, blue: 0.25),
+                Color(red: 0.22, green: 0.28, blue: 0.38),
+                Color(red: 0.35, green: 0.42, blue: 0.50),
             ]
         case .snow:
-            // Cold pale silver-white
+            // Bright white-out. Pure whites and cold silver.
             return [
-                Color(red: 0.62, green: 0.70, blue: 0.80),
-                Color(red: 0.78, green: 0.84, blue: 0.90),
-                Color(red: 0.90, green: 0.93, blue: 0.97),
+                Color(red: 0.85, green: 0.88, blue: 0.92),
+                Color(red: 0.95, green: 0.96, blue: 0.98),
+                Color(red: 1.00, green: 1.00, blue: 1.00),
             ]
         case .thunderstorm:
-            // Near-black purple-green bruise
+            // Ominous "bruised" teal and near-black charcoal.
             return [
-                Color(red: 0.06, green: 0.06, blue: 0.14),
-                Color(red: 0.12, green: 0.16, blue: 0.28),
-                Color(red: 0.22, green: 0.28, blue: 0.38),
+                Color(red: 0.04, green: 0.05, blue: 0.10),
+                Color(red: 0.15, green: 0.20, blue: 0.25),
+                Color(red: 0.28, green: 0.35, blue: 0.32),
             ]
         case .wind:
-            // Same as mostlyClear — wind has no distinct look
             return weatherGradientColors(condition: .mostlyClear, timeOfDay: .day)
         }
 
@@ -81,46 +81,43 @@ func weatherGradientColors(condition: WeatherCondition, timeOfDay: WeatherTimeOf
     case .night:
         switch condition {
         case .clear:
-            // Deep midnight navy, nearly black at top
+            // Infinite deep navy to a dark indigo horizon
             return [
-                Color(red: 0.02, green: 0.04, blue: 0.14),
-                Color(red: 0.06, green: 0.10, blue: 0.26),
-                Color(red: 0.10, green: 0.16, blue: 0.36),
+                Color(red: 0.01, green: 0.02, blue: 0.08),
+                Color(red: 0.03, green: 0.06, blue: 0.18),
+                Color(red: 0.08, green: 0.12, blue: 0.30),
             ]
         case .mostlyClear:
-            // Indigo-navy with a hint of lighter horizon
             return [
-                Color(red: 0.04, green: 0.06, blue: 0.20),
-                Color(red: 0.10, green: 0.14, blue: 0.32),
-                Color(red: 0.18, green: 0.22, blue: 0.44),
+                Color(red: 0.02, green: 0.04, blue: 0.12),
+                Color(red: 0.08, green: 0.12, blue: 0.25),
+                Color(red: 0.15, green: 0.20, blue: 0.38),
             ]
         case .overcast, .fog:
-            // Dark charcoal, very desaturated
+            // Dark, claustrophobic grey-black
             return [
-                Color(red: 0.08, green: 0.09, blue: 0.12),
-                Color(red: 0.14, green: 0.16, blue: 0.20),
-                Color(red: 0.22, green: 0.24, blue: 0.28),
+                Color(red: 0.03, green: 0.04, blue: 0.06),
+                Color(red: 0.08, green: 0.10, blue: 0.12),
+                Color(red: 0.15, green: 0.18, blue: 0.22),
             ]
         case .rain:
-            // Almost black with cold blue undertone
             return [
-                Color(red: 0.05, green: 0.07, blue: 0.14),
-                Color(red: 0.10, green: 0.14, blue: 0.24),
-                Color(red: 0.18, green: 0.22, blue: 0.34),
+                Color(red: 0.02, green: 0.04, blue: 0.08),
+                Color(red: 0.06, green: 0.10, blue: 0.18),
+                Color(red: 0.12, green: 0.18, blue: 0.28),
             ]
         case .snow:
-            // Very dark grey-blue, snow diffuses ambient light
+            // Snow reflecting dim light — pale lavender-grey and silver
             return [
-                Color(red: 0.10, green: 0.12, blue: 0.18),
-                Color(red: 0.18, green: 0.22, blue: 0.30),
-                Color(red: 0.30, green: 0.34, blue: 0.44),
+                Color(red: 0.12, green: 0.14, blue: 0.20),
+                Color(red: 0.25, green: 0.28, blue: 0.35),
+                Color(red: 0.45, green: 0.48, blue: 0.55),
             ]
         case .thunderstorm:
-            // Oppressive near-black with deep purple tinge
             return [
-                Color(red: 0.03, green: 0.02, blue: 0.08),
-                Color(red: 0.08, green: 0.06, blue: 0.18),
-                Color(red: 0.14, green: 0.12, blue: 0.28),
+                Color(red: 0.01, green: 0.01, blue: 0.05),
+                Color(red: 0.05, green: 0.04, blue: 0.12),
+                Color(red: 0.12, green: 0.10, blue: 0.22),
             ]
         case .wind:
             return weatherGradientColors(condition: .mostlyClear, timeOfDay: .night)
@@ -132,46 +129,44 @@ func weatherGradientColors(condition: WeatherCondition, timeOfDay: WeatherTimeOf
     case .sunrise:
         switch condition {
         case .clear:
-            // Classic amber → peach → pale blue horizon
+            // High-contrast electric orange and deep sky blue
             return [
-                Color(red: 0.88, green: 0.44, blue: 0.12),
-                Color(red: 0.96, green: 0.66, blue: 0.28),
-                Color(red: 0.99, green: 0.86, blue: 0.62),
+                Color(red: 0.15, green: 0.40, blue: 0.75),
+                Color(red: 0.95, green: 0.50, blue: 0.30),
+                Color(red: 1.00, green: 0.85, blue: 0.40),
             ]
         case .mostlyClear:
-            // Warmer pink-peach with some cloud softness
             return [
-                Color(red: 0.80, green: 0.36, blue: 0.28),
-                Color(red: 0.94, green: 0.60, blue: 0.38),
-                Color(red: 0.99, green: 0.82, blue: 0.68),
+                Color(red: 0.20, green: 0.45, blue: 0.70),
+                Color(red: 0.85, green: 0.45, blue: 0.45),
+                Color(red: 1.00, green: 0.80, blue: 0.65),
             ]
         case .overcast, .fog:
-            // Muted mauve-grey, sun can’t break through
+            // Muted, dusty purple/mauve. The sun trying and failing to break through.
             return [
-                Color(red: 0.38, green: 0.32, blue: 0.38),
-                Color(red: 0.56, green: 0.50, blue: 0.54),
-                Color(red: 0.74, green: 0.70, blue: 0.72),
+                Color(red: 0.25, green: 0.22, blue: 0.28),
+                Color(red: 0.45, green: 0.38, blue: 0.42),
+                Color(red: 0.60, green: 0.55, blue: 0.58),
             ]
         case .rain:
-            // Dark teal-grey, cold and wet at dawn
             return [
-                Color(red: 0.16, green: 0.24, blue: 0.34),
-                Color(red: 0.28, green: 0.38, blue: 0.48),
-                Color(red: 0.44, green: 0.54, blue: 0.62),
+                Color(red: 0.12, green: 0.18, blue: 0.28),
+                Color(red: 0.25, green: 0.30, blue: 0.42),
+                Color(red: 0.40, green: 0.45, blue: 0.55),
             ]
         case .snow:
-            // Pale lavender-white, cold diffuse light
+            // "Alpenglow" — soft pink light hitting pure white snow
             return [
-                Color(red: 0.54, green: 0.54, blue: 0.68),
-                Color(red: 0.74, green: 0.74, blue: 0.84),
-                Color(red: 0.90, green: 0.90, blue: 0.96),
+                Color(red: 0.82, green: 0.85, blue: 0.92),
+                Color(red: 1.00, green: 0.92, blue: 0.95),
+                Color(red: 1.00, green: 1.00, blue: 1.00),
             ]
         case .thunderstorm:
-            // Bruised amber-purple, storm at sunrise
+            // Bruised, burnt orange and deep violet
             return [
-                Color(red: 0.22, green: 0.10, blue: 0.18),
-                Color(red: 0.46, green: 0.22, blue: 0.18),
-                Color(red: 0.72, green: 0.44, blue: 0.22),
+                Color(red: 0.10, green: 0.05, blue: 0.15),
+                Color(red: 0.35, green: 0.15, blue: 0.25),
+                Color(red: 0.65, green: 0.35, blue: 0.20),
             ]
         case .wind:
             return weatherGradientColors(condition: .mostlyClear, timeOfDay: .sunrise)
