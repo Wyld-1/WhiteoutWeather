@@ -142,12 +142,12 @@ actor WeatherRepository {
     func fetchAll(lat: Double, lon: Double) async throws -> (
         CurrentConditions, [DailyForecast], [HourlyForecast], SunEvent, [String: NOAAScraper.ScrapedPeriod], Int
     ) {
-        async let omFetch   = OpenMeteoClient.shared.fetch(lat: lat, lon: lon)
-        async let noaaFetch = NOAAScraper.shared.fetchProse(lat: lat, lon: lon)
-
-        let om   = try await omFetch
-        let noaa = (try? await noaaFetch) ?? [:]
+        // Fetch OM first so we have the location's real timezone before parsing
+        // NOAA periods. The NOAA scraper uses the timezone to seed its date cursor,
+        // which must match the location's local "today" — not the device's.
+        let om   = try await OpenMeteoClient.shared.fetch(lat: lat, lon: lon)
         let tz   = TimeZone(secondsFromGMT: om.utcOffsetSeconds) ?? .current
+        let noaa = (try? await NOAAScraper.shared.fetchProse(lat: lat, lon: lon, tz: tz)) ?? [:]
 
         let current   = buildCurrentConditions(om: om, noaa: noaa, tz: tz)
         let allHourly = buildHourly(om: om, tz: tz)
@@ -165,17 +165,29 @@ actor WeatherRepository {
         tz: TimeZone
     ) -> CurrentConditions {
         let todayData = noaa[dateString(from: Date(), tz: tz)]
-        // Prefer day condition; fall back to tonight's in late afternoon when day is gone
-        let condition = [todayData?.dayCondition, todayData?.nightCondition]
-            .compactMap { $0 }
-            .first(where: { !$0.isEmpty }) ?? ""
+
+        // Temperature: prefer the NOAA station observation (same sensor network NOAA
+        // uses for its own page display); fall back to Open-Meteo.
+        let temperature = todayData?.currentTempF ?? om.current.temperature2m
+
+        // Condition label: prefer the short station label (e.g. "Rain"), then the
+        // day/night tombstone condition, then WMO description.
+        let stationLabel = todayData?.currentCondition ?? ""
+        let tombstoneLabel = [todayData?.dayCondition, todayData?.nightCondition]
+            .compactMap { $0 }.first(where: { !$0.isEmpty }) ?? ""
+        let description: String
+        if !stationLabel.isEmpty {
+            description = stationLabel
+        } else if !tombstoneLabel.isEmpty {
+            description = extractConditionLabel(from: tombstoneLabel)
+        } else {
+            description = wmoDescription(code: om.current.weatherCode, isDay: om.current.isDay == 1)
+        }
 
         let c = om.current
         return CurrentConditions(
-            temperature:        c.temperature2m,
-            description:        condition.isEmpty
-                                    ? wmoDescription(code: c.weatherCode, isDay: c.isDay == 1)
-                                    : extractConditionLabel(from: condition),
+            temperature:        temperature,
+            description:        description,
             windSpeed:          c.windSpeed10m,
             windGusts:          c.windGusts10m,
             windDirection:      c.windDirection10m,
@@ -324,6 +336,10 @@ actor NOAAScraper {
         let precipType: PrecipType
         let isNightSevere: Bool
         let precipChance: Int?
+        // Observed current conditions from the NOAA station block (today only).
+        // nil when the page has no current-conditions panel (future days, failed scrape).
+        let currentCondition: String?   // e.g. "Rain"
+        let currentTempF: Double?        // observed station temp in °F
     }
 
     /* Fetches and parses the NOAA forecast page for the given coordinate.
@@ -332,7 +348,11 @@ actor NOAAScraper {
      * @param lon longitude
      * @return dictionary of date key → ScrapedPeriod, or empty on parse failure
      */
-    func fetchProse(lat: Double, lon: Double) async throws -> [String: ScrapedPeriod] {
+    /* @param tz  the location's timezone (from Open-Meteo utcOffsetSeconds).
+     *             Used to seed the date cursor so "today" is correct for the
+     *             location, not the device running the app.
+     */
+    func fetchProse(lat: Double, lon: Double, tz: TimeZone = .current) async throws -> [String: ScrapedPeriod] {
         let url = URL(string: "https://forecast.weather.gov/MapClick.php?lat=\(lat)&lon=\(lon)")!
         var req = URLRequest(url: url)
         req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
@@ -341,7 +361,43 @@ actor NOAAScraper {
 
         let doc = try SwiftSoup.parse(html)
         let tombstones = try scrapeTombstones(doc)
-        return try buildPeriods(doc, tombstones: tombstones)
+        let (currentCondition, currentTempF) = scrapeCurrentConditions(doc)
+        return try buildPeriods(doc, tombstones: tombstones, tz: tz,
+                                currentCondition: currentCondition, currentTempF: currentTempF)
+    }
+
+    /* Scrapes the "Current Conditions" station block at the top of the NOAA forecast page.
+     * Returns the short condition label (e.g. "Rain") and the observed temperature in °F.
+     * Both are nil when the block is absent or unparseable.
+     *
+     * Confirmed selectors (verified via telemetry):
+     *   p.myforecast-current      -> condition string, e.g. "light rain,mist" (take before comma)
+     *   p.myforecast-current-lrg  -> imperial temp, e.g. "49°F"
+     *   p.myforecast-current-sm   -> metric temp, e.g. "9°C" (ignored)
+     */
+    private func scrapeCurrentConditions(_ doc: Document) -> (String?, Double?) {
+        // Condition: take the text before the first comma, title-case each word.
+        // "light rain,mist" -> "Light Rain"
+        let conditionRaw = (try? doc.select("p.myforecast-current").first()?.text())
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let condition: String? = conditionRaw.map { raw in
+            let segment = raw.split(separator: ",").first
+                .map { String($0).trimmingCharacters(in: .whitespaces) } ?? raw
+            return segment.split(separator: " ")
+                .map { w in String(w.prefix(1)).uppercased() + String(w.dropFirst()).lowercased() }
+                .joined(separator: " ")
+        }
+
+        // Temperature: p.myforecast-current-lrg holds the imperial value, e.g. "49°F".
+        let tempString = (try? doc.select("p.myforecast-current-lrg").first()?.text()) ?? ""
+        let digits = tempString.components(
+            separatedBy: CharacterSet.decimalDigits.union(CharacterSet(charactersIn: "-.")).inverted
+        ).joined()
+        let tempF = Double(digits).flatMap { v in
+            (-60.0...140.0).contains(v) ? v : nil
+        }
+
+        return (condition, tempF)
     }
 
     /* Scrapes the 7-day tombstone icon strip for period names and condition titles.
@@ -362,7 +418,8 @@ actor NOAAScraper {
     /* Parses the detailed forecast table into RawDay structs keyed by date,
      * then builds the final ScrapedPeriod map.
      */
-    private func buildPeriods(_ doc: Document, tombstones: [String: String]) throws -> [String: ScrapedPeriod] {
+    private func buildPeriods(_ doc: Document, tombstones: [String: String], tz: TimeZone = .current,
+                               currentCondition: String? = nil, currentTempF: Double? = nil) throws -> [String: ScrapedPeriod] {
         struct RawDay {
             var dayLabel: String = ""
             var dayText: String = ""
@@ -374,9 +431,11 @@ actor NOAAScraper {
 
         var raw: [String: RawDay] = [:]
         var orderedKeys: [String] = []
-        let cal = Calendar.current
+        // Lock calendar and formatters to the location's timezone so that
+        // "today" and day-name comparison use the location's local date.
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
         var cursor = cal.startOfDay(for: Date())
-        let dayFmt = DateFormatter(); dayFmt.dateFormat = "EEEE"
+        let dayFmt = DateFormatter(); dayFmt.dateFormat = "EEEE"; dayFmt.timeZone = tz
 
         for row in try doc.select("#detailed-forecast-body .row-forecast") {
             let label   = (try? row.select(".forecast-label").text()) ?? ""
@@ -392,7 +451,7 @@ actor NOAAScraper {
                 }
             }
 
-            let key = dateKey(cursor)
+            let key = dateKey(cursor, tz: tz)
             if raw[key] == nil { raw[key] = RawDay(); orderedKeys.append(key) }
 
             if isNight {
@@ -409,27 +468,33 @@ actor NOAAScraper {
             }
         }
 
+        let todayKey = dateKey(cal.startOfDay(for: Date()), tz: tz)
+
         var result: [String: ScrapedPeriod] = [:]
         for key in orderedKeys {
             guard let day = raw[key] else { continue }
             let combined = day.dayText + " " + day.nightText
+            // Attach the scraped station observation only to today's entry.
+            let isToday = key == todayKey
             result[key] = ScrapedPeriod(
-                condition:      day.dayCondition.isEmpty ? day.dayLabel : day.dayCondition,
-                dayProse:       day.dayText,
-                nightProse:     day.nightText,
-                dayCondition:   day.dayCondition,
-                nightCondition: day.nightCondition,
-                accumulation:   extractAccumulationRange(from: day.dayText) + extractAccumulationRange(from: day.nightText),
-                precipType:     PrecipType.from(dayCondition: day.dayCondition, nightCondition: day.nightCondition, prose: combined),
-                isNightSevere:  conditionsAreNightSevere(day: day.dayCondition, night: day.nightCondition),
-                precipChance:   day.precipChance
+                condition:        day.dayCondition.isEmpty ? day.dayLabel : day.dayCondition,
+                dayProse:         day.dayText,
+                nightProse:       day.nightText,
+                dayCondition:     day.dayCondition,
+                nightCondition:   day.nightCondition,
+                accumulation:     extractAccumulationRange(from: day.dayText) + extractAccumulationRange(from: day.nightText),
+                precipType:       PrecipType.from(dayCondition: day.dayCondition, nightCondition: day.nightCondition, prose: combined),
+                isNightSevere:    conditionsAreNightSevere(day: day.dayCondition, night: day.nightCondition),
+                precipChance:     day.precipChance,
+                currentCondition: isToday ? currentCondition : nil,
+                currentTempF:     isToday ? currentTempF     : nil
             )
         }
         return result
     }
 
-    private func dateKey(_ date: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: date)
+    private func dateKey(_ date: Date, tz: TimeZone = .current) -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = tz; return f.string(from: date)
     }
 
     /* Extracts a precipitation probability percentage from NOAA prose.

@@ -64,6 +64,11 @@ struct Provider: AppIntentTimelineProvider {
                     resolvedName = cached?.locationName ?? "—"
                 }
 
+                // Resolve the widget SF symbol from the NOAA current description
+                // (e.g. "Rain" → cloud.rain.fill) rather than the forecast day symbol.
+                let currentSymbol = noaaSFSymbol(condition: cur.description, isDay: cur.isDay)
+                                 ?? wmoSFSymbol(code: cur.weatherCode, isDay: cur.isDay)
+
                 let fresh = WidgetWeatherData(
                     id:                 id,
                     lat:                lat,
@@ -72,7 +77,7 @@ struct Provider: AppIntentTimelineProvider {
                     high:               firstDay.high,
                     low:                firstDay.low,
                     condition:          cur.description,
-                    sfSymbol:           firstDay.daySymbol,
+                    sfSymbol:           currentSymbol,
                     precipProbability:  firstDay.precipProbability,
                     locationName:       resolvedName,
                     windGusts:          cur.windGusts,
@@ -125,7 +130,6 @@ struct wildcat_NOAA_Weather_widgets: Widget {
                 }
         }
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular])
-        .contentMarginsDisabled()
     }
 }
 
@@ -211,7 +215,6 @@ struct MediumWidget: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
-            .padding(.top, 12)
         }
         .foregroundStyle(.white)
     }
@@ -252,9 +255,13 @@ struct WeatherInfoPanel: View {
             
             // Middle: SF symbol + precip
             VStack(spacing: 4) {
+                // Fix height: use a fixed-height frame so taller symbols
+                // (cloud.rain.fill, cloud.bolt.rain.fill) don't push layout.
                 Image(systemName: data.sfSymbol)
                     .renderingMode(.original)
                     .font(.system(size: 36))
+                    .scaledToFit()
+                    .frame(width: 44, height: 36)
                     .frame(maxWidth: .infinity)
                     .shadow(color: .black.opacity(0.3), radius: 2)
 
@@ -298,7 +305,6 @@ struct WeatherInfoPanel: View {
                 }
             }
         }
-        .padding(.horizontal, 20)
     }
 }
 

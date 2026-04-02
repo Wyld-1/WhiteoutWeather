@@ -43,7 +43,8 @@ struct LocationPageView: View {
                     current:           viewModel.current,
                     high:              viewModel.daily.first?.high,
                     low:               viewModel.daily.first?.low,
-                    isLoading:         viewModel.daily.isEmpty
+                    isLoading:         viewModel.daily.isEmpty,
+                    currentSFSymbol:   viewModel.currentSFSymbol
                 )
                 .padding(.top, 8)
                 
@@ -89,8 +90,18 @@ struct LocationPageView: View {
                     }
                     .refreshable {
                         guard let coord = coordinate else { return }
+                        // Mirror triggerFetch: saved locations skip geocoding so their
+                        // canonical name (e.g. "White Pass" or "Dallas, TX") is never
+                        // overwritten by CLGeocoder's nearest-town result.
+                        let locationID  = savedLocation?.id.uuidString
+                        let skipGeocode = savedLocation != nil
                         await Task.detached(priority: .userInitiated) {
-                            await viewModel.load(coordinate: coord, forceRefresh: true)
+                            await viewModel.load(
+                                coordinate:  coord,
+                                locationID:  locationID,
+                                skipGeocode: skipGeocode,
+                                forceRefresh: true
+                            )
                         }.value
                     }
                 }
@@ -115,6 +126,7 @@ struct LocationPageView: View {
         .task(id: coordinate?.latitude) {
             triggerFetch()
         }
+
         // Notify ContentView when background brightness changes so PageDotsView
         // can adapt its colors. Fire on both condition and time-of-day changes.
         .onChange(of: viewModel.isLightBackground) { _, newValue in
@@ -149,11 +161,14 @@ struct LocationPageView: View {
             viewModel.setSkiResort(savedLoc.isSkiResort)
         }
 
-        // Warm-start: populate the UI from cache before the network fetch.
-        // This makes tapping a widget feel instant — the app shows real data
-        // immediately while fresh data loads in the background.
+        // Warm-start: only populate from cache when there's no live data yet.
+        // Calling loadFromCache when the viewModel already has current data
+        // (e.g. on swipe-back within the cache window) would overwrite live
+        // state with stale widget cache, producing the wrong weather display.
         let cacheID = locationID ?? "current"
-        viewModel.loadFromCache(id: cacheID)
+        if viewModel.current == nil {
+            viewModel.loadFromCache(id: cacheID)
+        }
 
         Task {
             await viewModel.load(

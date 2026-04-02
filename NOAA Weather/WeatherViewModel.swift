@@ -63,6 +63,30 @@ final class WeatherViewModel {
     var dailyHigh: Double? { daily.first?.high }
     var dailyLow: Double?  { daily.first?.low }
 
+    /* SF symbol for the current-conditions header.
+     * Priority chain:
+     *  1. noaaSFSymbol from the NOAA station description ("Rain", "Snow", etc.)
+     *  2. wmoSFSymbol from the current-hour's OM weather code ("Now" slot in hourly)
+     *  3. wmoSFSymbol from the top-level OM current weather code
+     */
+    var currentSFSymbol: String {
+        guard let cur = current else { return "cloud.fill" }
+        // 1. NOAA description
+        if let sym = noaaSFSymbol(condition: cur.description, isDay: cur.isDay) { return sym }
+        // 2. Hourly "Now" slot
+        let cal = Calendar.current
+        if let nowHour = hourly.first(where: {
+            cal.isDateInToday($0.time) &&
+            cal.component(.hour, from: $0.time) == cal.component(.hour, from: Date())
+        }) {
+            let h = cal.component(.hour, from: nowHour.time)
+            let isDay = h >= 6 && h < 20
+            return wmoSFSymbol(code: nowHour.weatherCode, isDay: isDay)
+        }
+        // 3. OM top-level code
+        return wmoSFSymbol(code: cur.weatherCode, isDay: cur.isDay)
+    }
+
     /* Populates minimal display state from cached widget data without a network fetch.
      * Called immediately on deep link open so the header renders while fresh data loads.
      * The full load() call replaces this a moment later.
@@ -204,7 +228,15 @@ final class WeatherViewModel {
         }
         let city  = placemark.locality ?? ""
         let state = placemark.administrativeArea ?? ""
-        locationName = city.isEmpty ? state : city
+        // Use "City, ST" format to match the format LocationSearchView uses when
+        // saving locations — keeps the display consistent across current and saved pages.
+        if city.isEmpty {
+            locationName = state
+        } else if state.isEmpty {
+            locationName = city
+        } else {
+            locationName = "\(city), \(state)"
+        }
         // Propagate the freshly-geocoded name to the widget's App Group so it
         // always reflects the real current location, not a stale cached city.
         saveCoordinates(id: "current", coord: coord)

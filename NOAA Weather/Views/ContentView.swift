@@ -28,8 +28,9 @@ struct ContentView: View {
         return 0
     }
 
-    // Tracks whether the currently-visible page has a light background,
-    // so PageDotsView can flip its dot/icon colors for legibility.
+    // Tracks whether the currently-visible page has a light background.
+    // NOTE: PageDotsView always uses white indicators on a forced-dark glass,
+    // so this state is kept for potential future use but does not affect the bar.
     @State private var isLightBackground = false
 
     var body: some View {
@@ -57,7 +58,7 @@ struct ContentView: View {
             .ignoresSafeArea()
             // Reset brightness hint when swiping so there's no stale state
             // while the new page is still loading.
-            .onChange(of: selectedID) { isLightBackground = false }
+            .onChange(of: selectedID) { /* isLightBackground reset intentionally removed — bar is always dark */ }
             
             HStack {
                 Spacer()
@@ -147,9 +148,9 @@ struct PageDotsView: View
         .frame(width: controlWidth, height: 42)
     }
 
-    // Foreground colors flip between white-on-dark and near-black-on-light.
-    private var primaryColor: Color   { isLightBackground ? Color.black.opacity(0.75) : .white }
-    private var secondaryColor: Color { isLightBackground ? Color.black.opacity(0.35) : .white.opacity(0.45) }
+    // Indicators are always white — the bar background is always dark.
+    private var primaryColor: Color   { .white }
+    private var secondaryColor: Color { .white.opacity(0.45) }
 
     @ViewBuilder
     private func dotView(for index: Int) -> some View
@@ -190,28 +191,25 @@ struct PageDotsView: View
     {
         if #available(iOS 26.0, *)
         {
+            // Force a dark tint so the bar is always legible regardless of background.
+            // .regular auto-adapts (light on light = invisible indicators), so we
+            // use a dark fill on top of a subtle glass effect instead.
             Capsule()
-                .fill(.clear)
-                .glassEffect(.regular, in: Capsule())
+                .fill(Color.black.opacity(0.35))
+                .background {
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                }
         }
         else
         {
-            // On light backgrounds use a thin dark material instead of the
-            // bright white ultraThickMaterial, which glows badly over snow/clear-day.
+            // Always dark: thin material with a dark overlay keeps indicators visible
+            // over snow, clear-day, and every other background.
             Capsule()
-                .fill(isLightBackground
-                    ? AnyShapeStyle(Color.black.opacity(0.15))
-                    : AnyShapeStyle(Material.ultraThinMaterial))
-                .overlay(
-                    Capsule()
-                        .stroke(
-                            isLightBackground
-                                ? Color.black.opacity(0.12)
-                                : Color.white.opacity(0.15),
-                            lineWidth: 1
-                        )
-                )
-                .animation(.easeInOut(duration: 0.3), value: isLightBackground)
+                .fill(AnyShapeStyle(Color.black.opacity(0.30)))
+                .background {
+                    Capsule().fill(.ultraThinMaterial)
+                }
         }
     }
 
@@ -221,12 +219,7 @@ struct PageDotsView: View
         if #available(iOS 26.0, *)
         {
             Capsule()
-                .stroke(
-                    isLightBackground
-                        ? Color.black.opacity(0.06)
-                        : Color.white.opacity(0.08),
-                    lineWidth: 0.75
-                )
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.75)
         }
     }
 
@@ -437,6 +430,7 @@ struct CurrentConditionsHeader: View {
     let high: Double?
     let low: Double?
     let isLoading: Bool
+    let currentSFSymbol: String
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
@@ -461,18 +455,11 @@ struct CurrentConditionsHeader: View {
             HStack(alignment: .center, spacing: 16) {
                 VStack {
                     Spacer()
-                    // SF symbol
-                    if let code = current?.weatherCode, let isDay = current?.isDay {
-                        Image(systemName: wmoSFSymbol(code: code, isDay: isDay))
-                            .symbolRenderingMode(.multicolor)
-                            .font(.system(size: 60))
-                            .shadow(radius: 6)
-                    } else {
-                        Image(systemName: "cloud.fill")
-                            .symbolRenderingMode(.multicolor)
-                            .font(.system(size: 60))
-                            .opacity(0.4)
-                    }
+                    Image(systemName: currentSFSymbol)
+                        .symbolRenderingMode(.multicolor)
+                        .font(.system(size: 60))
+                        .shadow(radius: 6)
+                        .opacity(current == nil ? 0.4 : 1.0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -761,7 +748,9 @@ struct DailyRow: View {
                     
                     if day.precipProbability >= 20 {
                         HStack(spacing: 3) {
-                            Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake")
+                            // Use raindrop for rain and mixed (rain+snow).
+                            // Only pure snow gets the snowflake.
+                            Image(systemName: day.precipType == .snow ? "snowflake" : "drop.fill")
                                 .symbolRenderingMode(.multicolor)
                                 .font(.system(size: 9))
                                 .foregroundStyle(.cyan)
@@ -787,7 +776,8 @@ struct DailyRow: View {
 
             if day.accumulation.hasAccumulation {
                 HStack(spacing: 6) {
-                    Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake")
+                    // Same logic as the probability icon: only pure snow gets the snowflake.
+                    Image(systemName: day.precipType == .snow ? "snowflake" : "drop.fill")
                         .font(.system(size: 12, weight: .bold)).foregroundStyle(.cyan)
                     Text(day.accumulation.displayString(settings: settings))
                         .font(.system(size: 14, weight: .semibold)).foregroundStyle(.cyan)
