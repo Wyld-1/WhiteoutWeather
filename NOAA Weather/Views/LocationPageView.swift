@@ -50,8 +50,7 @@ struct LocationPageView: View {
                 
                 Capsule()
                     .fill(.black.opacity(0.3))
-                    .frame(width: 300, height: 3)
-                    .padding(.bottom, 8)
+                    .frame(width: 300, height: 4)
 
                 if let error = viewModel.errorMessage {
                     // Error state — centred below the pinned header
@@ -88,6 +87,18 @@ struct LocationPageView: View {
                             .shadow(color: .black, radius: 1)
                             .padding(.bottom, 60)
                     }
+                    .mask(
+                        LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),                   // Totally hidden at the top
+                                    .init(color: .black.opacity(0.3), location: 0.02),   // Midway point for a smoother curve
+                                    .init(color: .black, location: 0.04),                // Fully visible by 4% depth
+                                    .init(color: .black, location: 1.0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                    )
                     .refreshable {
                         guard let coord = coordinate else { return }
                         // Mirror triggerFetch: saved locations skip geocoding so their
@@ -102,7 +113,8 @@ struct LocationPageView: View {
                                 skipGeocode: skipGeocode,
                                 forceRefresh: true
                             )
-                        }.value
+                        }
+                        .value
                     }
                 }
             }

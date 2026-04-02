@@ -129,6 +129,7 @@ struct wildcat_NOAA_Weather_widgets: Widget {
                     WidgetBackground(condition: entry.data.condition, isDay: entry.data.isDay)
                 }
         }
+        //.contentMarginsDisabled()
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular])
     }
 }
@@ -229,22 +230,22 @@ struct WeatherInfoPanel: View {
     private var hasWindAlert: Bool { (data.windGusts ?? 0) >= 40.0 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Top bar holds location indicator + location name + alerts
+        // Outer VStack: location header pinned top, H/L pinned bottom,
+        // everything in between fills available space evenly.
+        VStack(alignment: .leading, spacing: 0) {
+
+            // ── TOP: location name + wind alert ──────────────────────────
             HStack(spacing: 4) {
                 if data.id == "current" {
                     Image(systemName: "location.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.white.opacity(0.85))
                 }
-                
                 Text(data.locationName)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
-                
                 Spacer()
-                
                 if hasWindAlert {
                     Image(systemName: "wind.circle.fill")
                         .font(.system(size: 20))
@@ -252,40 +253,45 @@ struct WeatherInfoPanel: View {
                 }
             }
             .shadow(color: .black.opacity(0.3), radius: 2)
-            
-            // Middle: SF symbol + precip
-            VStack(spacing: 4) {
-                // Fix height: use a fixed-height frame so taller symbols
-                // (cloud.rain.fill, cloud.bolt.rain.fill) don't push layout.
-                Image(systemName: data.sfSymbol)
-                    .renderingMode(.original)
-                    .font(.system(size: 36))
-                    .scaledToFit()
-                    .frame(width: 44, height: 36)
-                    .frame(maxWidth: .infinity)
-                    .shadow(color: .black.opacity(0.3), radius: 2)
 
-                if data.precipProbability > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "drop.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.cyan)
-                        Text("\(data.precipProbability)%")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.cyan)
+            // ── MIDDLE: symbol + precip + temperature ────────────────────
+            VStack(alignment: .center, spacing: 0) {
+                Spacer(minLength: 8)
+
+                VStack(spacing: 0) {
+                    Image(systemName: data.sfSymbol)
+                        .renderingMode(.original)
+                        .font(.system(size: data.precipProbability >= 20 ? 45 : 52))
+                        .scaledToFit()
+                        .frame(height: data.precipProbability >= 20 ? 45 : 52)
+                        .shadow(color: .black.opacity(0.3), radius: 2)
+
+                    if data.precipProbability >= 20 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "drop.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.cyan)
+                            Text("\(data.precipProbability)%")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.cyan)
+                        }
+                        .shadow(color: .black.opacity(0.2), radius: 1)
                     }
-                    .shadow(color: .black.opacity(0.2), radius: 1)
                 }
+                .frame(maxWidth: .infinity, minHeight: 52, maxHeight: 52, alignment: .top)
+
+                Spacer(minLength: 8)
+
+                Text("\(Int(settings.temperature(data.temperature).rounded()))°")
+                    .font(.system(size: 38, weight: .medium, design: .rounded))
+                    .shadow(color: .black.opacity(0.25), radius: 2)
+                    .frame(maxWidth: .infinity)
+
+                Spacer(minLength: 0)
             }
-            .padding(.top, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Current temperature — raw °F, converted at display time
-            Text("\(Int(settings.temperature(data.temperature).rounded()))°")
-                .font(.system(size: 38, weight: .medium, design: .rounded))
-                .shadow(color: .black.opacity(0.25), radius: 2)
-                .frame(maxWidth: .infinity)
-
-            // Accumulation or H/L
+            // ── BOTTOM: H/L or accumulation ──────────────────────────────
             Group {
                 if let accum = data.accumDisplayString, !accum.isEmpty {
                     HStack(spacing: 4) {
@@ -304,7 +310,9 @@ struct WeatherInfoPanel: View {
                         .shadow(color: .black.opacity(0.3), radius: 2)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, minHeight: 142, maxHeight: 142, alignment: .top)
     }
 }
 

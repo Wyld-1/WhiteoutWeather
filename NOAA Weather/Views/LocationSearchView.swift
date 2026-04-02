@@ -99,7 +99,8 @@ struct LocationSearchView: View {
                                 }
                             }
                         }
-                    }.listStyle(.insetGrouped)
+                    }
+                    .listStyle(.insetGrouped)
                 }
             }
             .navigationTitle("Add Location").navigationBarTitleDisplayMode(.inline)

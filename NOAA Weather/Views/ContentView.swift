@@ -1357,7 +1357,8 @@ struct InteractiveTempGraph: View {
                         addCurve(to: &path, pts: pts)
                         path.addLine(to: CGPoint(x: pts.last!.0, y: topPad + plotH))
                         path.closeSubpath()
-                    }.fill(LinearGradient(colors: [.barrelRed.opacity(0.35), .barrelRed.opacity(0.03)], startPoint: .top, endPoint: .bottom))
+                    }
+                    .fill(LinearGradient(colors: [.barrelRed.opacity(0.35), .barrelRed.opacity(0.03)], startPoint: .top, endPoint: .bottom))
 
                     Path { path in
                         path.move(to: CGPoint(x: pts[0].0, y: pts[0].1))
