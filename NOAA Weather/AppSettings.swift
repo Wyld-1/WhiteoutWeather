@@ -30,13 +30,14 @@ final class Haptics {
 
     func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
         switch style {
-        case .light:  light.impactOccurred()
-        case .rigid:  rigid.impactOccurred()
-        default:      medium.impactOccurred()
+        case .light:  light.prepare();  light.impactOccurred()
+        case .rigid:  rigid.prepare();  rigid.impactOccurred()
+        default:      medium.prepare(); medium.impactOccurred()
         }
     }
 
     func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        notif.prepare()
         notif.notificationOccurred(type)
     }
 }

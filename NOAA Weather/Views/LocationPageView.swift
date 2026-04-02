@@ -50,8 +50,6 @@ struct LocationPageView: View {
                 Capsule()
                     .fill(.black.opacity(0.3))
                     .frame(width: 300, height: 4)
-                
-                Spacer(minLength: 10)
 
                 if let error = viewModel.errorMessage {
                     Spacer()
@@ -66,13 +64,14 @@ struct LocationPageView: View {
                         .frame(maxWidth: .infinity)
                         .shadow(radius: 6)
                         .padding(.horizontal, 32)
-                        .padding(.bottom, -18)
+                        .padding(.bottom, 18)
 
                 } else {
                     // Scroll content extends under the home indicator; the gradient
                     // overlay fades it out so nothing collides with system chrome.
                     ZStack(alignment: .bottom) {
                         ScrollView(.vertical, showsIndicators: false) {
+                            Spacer(minLength: 8)
                             WeatherContentView(viewModel: viewModel, selectedDay: $selectedDay)
 
                             if !isCurrentLocation {
@@ -86,7 +85,7 @@ struct LocationPageView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.8))
                                 .shadow(color: .black, radius: 1)
-                                .padding(.bottom, 80)
+                                .padding(.bottom, 85)
                         }
                         .mask(
                             LinearGradient(
