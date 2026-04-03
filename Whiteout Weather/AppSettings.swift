@@ -15,7 +15,15 @@ import WidgetKit
 
 /* Thin wrapper around UIImpactFeedbackGenerator and UINotificationFeedbackGenerator.
  * Call Haptics.shared.impact() or .notification() from any view.
- * Generators are prepared lazily and reused to minimise latency.
+ *
+ * Each generator is re-prepared immediately before firing. Feedback generators
+ * go "cold" after a few seconds of inactivity; the only reliable fix is to call
+ * prepare() right before impactOccurred() / notificationOccurred() on every call.
+ * This avoids the latency spike on the first tap after the app has been idle.
+ *
+ * prepareAll() should also be called proactively at app launch and on every
+ * .active scene-phase transition so the generators are pre-warmed and the
+ * very first tap is instant rather than cold.
  */
 final class Haptics {
     static let shared = Haptics()
@@ -25,6 +33,12 @@ final class Haptics {
     private let notif   = UINotificationFeedbackGenerator()
 
     private init() {
+        prepareAll()
+    }
+
+    // Call this at app launch and on every `.active` scene-phase transition
+    // to pre-warm all generators so the first tap is never cold.
+    func prepareAll() {
         light.prepare(); medium.prepare(); rigid.prepare(); notif.prepare()
     }
 

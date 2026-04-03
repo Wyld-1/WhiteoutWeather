@@ -530,7 +530,7 @@ struct WeatherAlertBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
+        .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
@@ -1443,7 +1443,7 @@ struct GlassCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
     var body: some View {
         content()
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.ultraThinMaterial).opacity(0.85))
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.thinMaterial).opacity(0.85))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)

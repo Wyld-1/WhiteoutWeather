@@ -40,6 +40,10 @@ struct WhiteoutWeatherApp: App {
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
+        // Pre-warm haptic generators at launch so the first button tap is instant.
+        // Generators go cold within seconds of inactivity; calling prepareAll() here
+        // covers the WelcomeView case where the user taps "Get Started" right away.
+        Haptics.shared.prepareAll()
     }
 
     var body: some Scene {
@@ -60,6 +64,10 @@ struct WhiteoutWeatherApp: App {
                     }
                     .onChange(of: scenePhase) { _, newPhase in
                         guard newPhase == .active else { return }
+                        // Re-warm haptic generators every time the app comes to the
+                        // foreground — they go cold while the app is suspended, which
+                        // causes the first tap after resuming to have a noticeable delay.
+                        Haptics.shared.prepareAll()
                         // Pick up any setting changes made in System Settings while suspended.
                         settings.syncFromStandard()
                         #if DEBUG

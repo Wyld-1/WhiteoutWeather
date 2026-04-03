@@ -65,16 +65,15 @@ final class WeatherViewModel {
 
     /* SF symbol for the current-conditions header.
      * Priority chain:
-     *  1. noaaSFSymbol from the NOAA station description ("Rain", "Snow", etc.)
-     *  2. wmoSFSymbol from the current-hour's OM weather code ("Now" slot in hourly)
-     *  3. wmoSFSymbol from the top-level OM current weather code
+     *  1. wmoSFSymbol from the current-hour's OM weather code ("Now" slot in hourly)
+     *     — most reliable real-time source; avoids NOAA station N/A or stale labels
+     *  2. wmoSFSymbol from the top-level OM current weather code
+     *  3. noaaSFSymbol from the NOAA station description as a last-resort fallback
      */
     var currentSFSymbol: String {
         guard let cur = current else { return "cloud.fill" }
-        // 1. NOAA description
-        if let sym = noaaSFSymbol(condition: cur.description, isDay: cur.isDay) { return sym }
-        // 2. Hourly "Now" slot
         let cal = Calendar.current
+        // 1. Hourly "Now" slot — same symbol the hourly card shows for the current hour
         if let nowHour = hourly.first(where: {
             cal.isDateInToday($0.time) &&
             cal.component(.hour, from: $0.time) == cal.component(.hour, from: Date())
@@ -83,8 +82,16 @@ final class WeatherViewModel {
             let isDay = h >= 6 && h < 20
             return wmoSFSymbol(code: nowHour.weatherCode, isDay: isDay)
         }
-        // 3. OM top-level code
-        return wmoSFSymbol(code: cur.weatherCode, isDay: cur.isDay)
+        // 2. OM top-level code
+        let omSymbol = wmoSFSymbol(code: cur.weatherCode, isDay: cur.isDay)
+        // Guard against the WMO fallback returning a generic cloud when NOAA
+        // has something more specific (e.g. thunderstorm, snow).
+        if let noaaSym = noaaSFSymbol(condition: cur.description, isDay: cur.isDay) {
+            // 3. NOAA description — only preferred over generic WMO fallbacks
+            let genericWMO = Set(["cloud.fill", "cloud.sun.fill", "cloud.moon.fill"])
+            if genericWMO.contains(omSymbol) { return noaaSym }
+        }
+        return omSymbol
     }
 
     /* Populates minimal display state from cached widget data without a network fetch.
