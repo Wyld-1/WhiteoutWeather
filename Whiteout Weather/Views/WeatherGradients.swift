@@ -10,12 +10,7 @@ import SwiftUI
  *   • App  — full-screen LinearGradient in GradientBackgroundView
  *   • Widget — containerBackground LinearGradient in WidgetBackground
  *
- * ADD THIS FILE TO BOTH TARGET MEMBERSHIPS IN XCODE:
- *   NOAA Weather target ✓
- *   wildcat.NOAA-Weather.widgets target ✓
- */
-
-/* Returns the gradient color stops for a condition + time-of-day pair.
+ * Returns the gradient color stops for a condition + time-of-day pair.
  * Colors are ordered top → bottom (use .top / .bottom as gradient points).
  *
  * Fog maps to overcast. Wind is not used (caller should map it before calling).

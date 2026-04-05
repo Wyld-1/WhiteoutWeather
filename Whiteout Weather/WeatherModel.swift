@@ -190,11 +190,17 @@ actor WeatherRepository {
         }
 
         let c = om.current
+        // Wind: prefer NOAA prose extraction (day prose first, then night) so that
+        // "East wind around 8 mph, with gusts as high as 20 mph" overrides OM.
+        // Fall back to OM values when NOAA prose is absent or unparseable.
+        let proseSources = [todayData?.dayProse ?? "", todayData?.nightProse ?? ""]
+        let noaaWindSpeed = proseSources.compactMap { extractWindSpeedFromProse($0) }.first
+        let noaaWindGust  = proseSources.compactMap { extractWindGustFromProse($0) }.first
         return CurrentConditions(
             temperature:        temperature,
             description:        description,
-            windSpeed:          c.windSpeed10m,
-            windGusts:          c.windGusts10m,
+            windSpeed:          noaaWindSpeed ?? c.windSpeed10m,
+            windGusts:          noaaWindGust  ?? c.windGusts10m,
             windDirection:      c.windDirection10m,
             windDirectionLabel: compassDirection(from: c.windDirection10m),
             humidity:           c.relativeHumidity2m,
@@ -273,7 +279,7 @@ actor WeatherRepository {
 
             let nightCond  = noaaData?.nightCondition ?? ""
             let nightProse = noaaData?.nightProse ?? ""
-            let nightSymbol: String? = {
+            let nightSymbolResolved: String? = {
                 if !nightCond.isEmpty {
                     return noaaSFSymbol(condition: nightCond, isDay: false) ?? "cloud.moon.fill"
                 }
@@ -283,9 +289,15 @@ actor WeatherRepository {
                 }
                 return nil
             }()
-
-            // rowNightSymbol gates the dual-symbol in the 7-day row to only dramatic contrasts
-            let rowNightSymbol: String? = noaaData?.isNightSevere == true ? nightSymbol : nil
+            // Only expose nightSymbol when it differs meaningfully from the day symbol.
+            // A clear day (sun.max.fill) and a clear night (moon.stars.fill) look different
+            // but represent the same sky condition — showing both in the detail sheet
+            // would be misleading. We only want the night symbol when it conveys
+            // genuinely different information (i.e. the conditions are severe).
+            let nightIsSevere = conditionsAreNightSevere(day: dayCond, night: nightCond)
+            let nightSymbol: String? = nightIsSevere ? nightSymbolResolved : nil
+            // rowNightSymbol gates the dual-symbol in the 7-day row — same condition.
+            let rowNightSymbol: String? = nightIsSevere ? nightSymbolResolved : nil
             let condLabel = !dayCond.isEmpty ? dayCond : wmoDescription(code: wmoCode, isDay: true)
 
             days.append(DailyForecast(
@@ -609,11 +621,11 @@ actor OpenMeteoClient {
 
 // MARK: - Weather Category
 
-/* Broad sky/precipitation category used only for isNightSevere comparison.
+/* Broad sky/precipitation category used for isNightSevere comparison.
  * Not used for display — see PrecipType and noaaSFSymbol for that.
  */
 enum WeatherCategory: Hashable {
-    case clear, partlyCloudy, cloudy, fog, drizzle, rain, snow, storm
+    case clear, mostlyClear, partlyCloudy, cloudy, fog, drizzle, rain, snow, storm
 }
 
 /* Classifies a NOAA condition string into a WeatherCategory.
@@ -621,38 +633,58 @@ enum WeatherCategory: Hashable {
  */
 nonisolated func weatherCategory(from condition: String) -> WeatherCategory {
     let c = condition.lowercased().components(separatedBy: " then ").last ?? condition.lowercased()
-    if c.contains("thunder") || c.contains("tstm")                            { return .storm }
+    if c.contains("thunder") || c.contains("tstm")                              { return .storm }
     if c.contains("blizzard") || c.contains("heavy snow") || c.contains("snow") ||
-       c.contains("flurr") || c.contains("sleet") || c.contains("wintry mix")  { return .snow }
-    if c.contains("heavy rain") || c.contains("shower") || c.contains("rain")  { return .rain }
-    if c.contains("drizzle")                                                    { return .drizzle }
-    if c.contains("fog") || c.contains("mist")                                 { return .fog }
-    if c.contains("overcast") || c.contains("cloudy")                          { return .cloudy }
-    if c.contains("partly sunny") || c.contains("partly cloudy") ||
-       c.contains("mostly cloudy")                                              { return .partlyCloudy }
+       c.contains("flurr") || c.contains("sleet") || c.contains("wintry mix")    { return .snow }
+    if c.contains("heavy rain") || c.contains("shower") || c.contains("rain")    { return .rain }
+    if c.contains("drizzle")                                                      { return .drizzle }
+    if c.contains("fog") || c.contains("mist")                                   { return .fog }
+    if c.contains("mostly cloudy") || c.contains("overcast") ||
+       c.contains("considerable cloudiness")                                      { return .cloudy }
+    if c.contains("partly sunny") || c.contains("partly cloudy")                 { return .partlyCloudy }
+    if c.contains("mostly sunny") || c.contains("mostly clear")                  { return .mostlyClear }
     return .clear
 }
 
 /* Returns true when day and night conditions are dramatically different in a way
- * worth surfacing to the user — e.g. sunny day + thunderstorm night, or blizzard day + clear night.
- * Symmetric: either direction of contrast triggers the flag.
+ * worth surfacing to the user — e.g. sunny day + thunderstorm night.
+ * Only flags genuine surprises; clear→mostlyClear or partlyCloudy→cloudy are not severe.
  *
  * @param day   tombstone condition string for the day period
  * @param night tombstone condition string for the night period
  */
 nonisolated func conditionsAreNightSevere(day: String, night: String) -> Bool {
-    guard !night.isEmpty else { return false }
+    guard !day.isEmpty, !night.isEmpty else { return false }
     let d = weatherCategory(from: day)
     let n = weatherCategory(from: night)
     guard d != n else { return false }
 
+    // Only flag pairs where the night condition would genuinely surprise someone
+    // who only saw the day forecast. Minor sky-cover shifts (clear↔mostlyClear,
+    // partlyCloudy↔cloudy) are not worth a dual icon.
     let severePairs: Set<Set<WeatherCategory>> = [
-        [.clear, .storm], [.clear, .snow], [.clear, .rain], [.clear, .fog],
-        [.partlyCloudy, .storm], [.partlyCloudy, .snow],
-        [.cloudy, .storm], [.cloudy, .snow],
-        [.drizzle, .storm], [.drizzle, .snow],
-        [.rain, .snow], [.rain, .storm],
-        [.snow, .storm], [.snow, .clear], [.storm, .clear],
+        // Precipitation appearing at night after a clear/partly-cloudy day
+        [.clear,        .storm],
+        [.clear,        .snow],
+        [.clear,        .rain],
+        [.clear,        .fog],
+        [.mostlyClear,  .storm],
+        [.mostlyClear,  .snow],
+        [.mostlyClear,  .rain],
+        [.partlyCloudy, .storm],
+        [.partlyCloudy, .snow],
+        [.cloudy,       .storm],
+        [.cloudy,       .snow],
+        // Mixed precipitation shifts
+        [.drizzle,      .storm],
+        [.drizzle,      .snow],
+        [.rain,         .snow],
+        [.rain,         .storm],
+        // Dramatic clearing overnight (e.g. thunderstorm day → clear night)
+        [.storm,        .clear],
+        [.storm,        .mostlyClear],
+        [.snow,         .clear],
+        [.snow,         .mostlyClear],
     ]
     return severePairs.contains([d, n])
 }
@@ -686,6 +718,57 @@ nonisolated func extractHighTemp(from text: String) -> Double? {
  */
 nonisolated func extractLowTemp(from text: String) -> Double? {
     let pattern = "low[s]?\\s+(?:near|around|of)\\s+(-?[0-9]+(?:\\.[0-9]+)?)"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+          let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+          match.range(at: 1).location != NSNotFound,
+          let range = Range(match.range(at: 1), in: text)
+    else { return nil }
+    return Double(text[range])
+}
+
+// MARK: - NOAA Wind Extraction
+
+/* Extracts sustained wind speed in mph from NOAA prose.
+ * Handles patterns like:
+ *   "East wind around 8 mph"         → 8
+ *   "North wind 10 to 15 mph"        → 12.5 (midpoint)
+ *   "winds up to 20 mph"             → 20
+ *   "Breezy, with a west wind 15 to 25 mph" → 20
+ * Returns nil when no match is found so the caller can fall back to Open-Meteo.
+ */
+nonisolated func extractWindSpeedFromProse(_ text: String) -> Double? {
+    let t = text
+    // Range pattern: "10 to 15 mph" → midpoint
+    let rangePattern = "([0-9]+)\\s+to\\s+([0-9]+)\\s+mph"
+    if let regex = try? NSRegularExpression(pattern: rangePattern, options: .caseInsensitive),
+       let match = regex.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+       match.range(at: 1).location != NSNotFound,
+       match.range(at: 2).location != NSNotFound,
+       let r1 = Range(match.range(at: 1), in: t),
+       let r2 = Range(match.range(at: 2), in: t),
+       let lo = Double(t[r1]), let hi = Double(t[r2]) {
+        return (lo + hi) / 2
+    }
+    // Single value: "around 8 mph", "up to 20 mph", "near 15 mph", "15 mph"
+    let singlePattern = "(?:around|near|up to|about)?\\s*([0-9]+)\\s+mph"
+    if let regex = try? NSRegularExpression(pattern: singlePattern, options: .caseInsensitive),
+       let match = regex.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+       match.range(at: 1).location != NSNotFound,
+       let r = Range(match.range(at: 1), in: t) {
+        return Double(t[r])
+    }
+    return nil
+}
+
+/* Extracts wind gust speed in mph from NOAA prose.
+ * Handles patterns like:
+ *   "with gusts as high as 20 mph"   → 20
+ *   "gusts up to 35 mph"             → 35
+ *   "gusts to 25 mph"                → 25
+ * Returns nil when no match is found so the caller can fall back to Open-Meteo.
+ */
+nonisolated func extractWindGustFromProse(_ text: String) -> Double? {
+    let pattern = "gust[s]?\\s+(?:as high as|up to|to|of|near|around)?\\s*([0-9]+)\\s+mph"
     guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
           match.range(at: 1).location != NSNotFound,

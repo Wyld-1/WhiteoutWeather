@@ -945,7 +945,9 @@ struct WindStatRow: View {
 
 struct CompassRose: View {
     let degrees: Double
-    private var needleDeg: Double { (degrees + 180).truncatingRemainder(dividingBy: 360) }
+    // Wind direction is where the wind comes FROM — point the needle
+    // at that bearing directly. No +180 offset needed.
+    private var needleDeg: Double { degrees }
 
     var body: some View {
         Canvas { ctx, size in

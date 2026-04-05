@@ -37,7 +37,7 @@ struct Provider: AppIntentTimelineProvider {
         // Fetch fresh data if we have coordinates
         if let lat, let lon {
             do {
-                let (cur, days, _, _, _, _, alerts) = try await WeatherRepository.shared.fetchAll(lat: lat, lon: lon)
+                let (cur, days, allHourly, _, _, _, alerts) = try await WeatherRepository.shared.fetchAll(lat: lat, lon: lon)
                 guard let firstDay = days.first else { throw URLError(.badServerResponse) }
 
                 // Geocode to get the nearest city name independently of the main app.
@@ -65,10 +65,28 @@ struct Provider: AppIntentTimelineProvider {
                     resolvedName = cached?.locationName ?? "—"
                 }
 
-                // Resolve the widget SF symbol from the NOAA current description
-                // (e.g. "Rain" → cloud.rain.fill) rather than the forecast day symbol.
-                let currentSymbol = noaaSFSymbol(condition: cur.description, isDay: cur.isDay)
-                                 ?? wmoSFSymbol(code: cur.weatherCode, isDay: cur.isDay)
+                // Resolve the SF symbol and background condition using the same
+                // priority chain as the app's header (WeatherViewModel.currentSFSymbol):
+                //  1. Hourly "Now" slot WMO code — most reliable real-time source
+                //  2. OM top-level current WMO code
+                //  3. NOAA description as last-resort fallback for specificity
+                let cal = Calendar.current
+                let nowHour = allHourly.first(where: {
+                    cal.isDateInToday($0.time) &&
+                    cal.component(.hour, from: $0.time) == cal.component(.hour, from: Date())
+                })
+                let nowCode  = nowHour?.weatherCode ?? cur.weatherCode
+                let nowIsDay = nowHour.map { cal.component(.hour, from: $0.time) >= 6 &&
+                                            cal.component(.hour, from: $0.time) < 20 } ?? cur.isDay
+                let omSymbol = wmoSFSymbol(code: nowCode, isDay: nowIsDay)
+                // The hourly WMO code is the authoritative symbol source for the widget.
+                // Unlike the app header, we do NOT apply a NOAA tiebreaker here —
+                // cur.description is the station current-conditions label which can be
+                // stale or generic ("Fair", "Clear") even when WMO reports overcast,
+                // and would incorrectly override a correct cloudy/rain symbol.
+                let currentSymbol = omSymbol
+                // Background condition derived from the same WMO code so symbol
+                // and gradient always agree — used via wmoDescription() below.
 
                 // Top alert for the widget icon slot — highest severity wins.
                 // Color is stored as raw RGB doubles (Codable-safe; SwiftUI.Color is not).
@@ -83,7 +101,7 @@ struct Provider: AppIntentTimelineProvider {
                     temperature:        cur.temperature,
                     high:               firstDay.high,
                     low:                firstDay.low,
-                    condition:          cur.description,
+                    condition:          wmoDescription(code: nowCode, isDay: nowIsDay), // WMO-derived, consistent with sfSymbol
                     sfSymbol:           currentSymbol,
                     precipProbability:  firstDay.precipProbability,
                     locationName:       resolvedName,
