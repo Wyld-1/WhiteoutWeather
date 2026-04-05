@@ -12,6 +12,7 @@
 import SwiftUI
 import Combine
 import AVFoundation
+internal import CoreLocation
 
 extension Notification.Name {
     static let refreshAllLocations = Notification.Name("refreshAllLocations")
@@ -64,12 +65,16 @@ struct WhiteoutWeatherApp: App {
                     }
                     .onChange(of: scenePhase) { _, newPhase in
                         guard newPhase == .active else { return }
-                        // Re-warm haptic generators every time the app comes to the
-                        // foreground — they go cold while the app is suspended, which
-                        // causes the first tap after resuming to have a noticeable delay.
                         Haptics.shared.prepareAll()
-                        // Pick up any setting changes made in System Settings while suspended.
                         settings.syncFromStandard()
+                        // If location access was revoked while the app was suspended
+                        // and the user was on the current-location page, redirect them.
+                        if locationManager.authorizationStatus == .denied ||
+                           locationManager.authorizationStatus == .restricted {
+                            if selectedLocationID == "current" {
+                                selectedLocationID = locationStore.saved.first.map { $0.id.uuidString } ?? "add"
+                            }
+                        }
                         #if DEBUG
                         if settings.debugResetWasTriggered {
                             debugResetScope = .welcomeOnly

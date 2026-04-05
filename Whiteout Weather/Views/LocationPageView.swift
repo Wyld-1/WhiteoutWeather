@@ -20,6 +20,9 @@ struct LocationPageView: View {
     
     let savedLocation: SavedLocation?
     let onBackgroundChange: ((Bool) -> Void)?
+    // Injected by ContentView so delete can navigate to the correct page.
+    var selectedID: Binding<String?>? = nil
+    var showCurrentPage: Bool = true
     private var isCurrentLocation: Bool { savedLocation == nil }
     
     private var coordinate: CLLocationCoordinate2D? {
@@ -167,7 +170,17 @@ struct LocationPageView: View {
         }
         .alert("Delete Location?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
-                if let loc = savedLocation { store.delete(loc) }
+                if let loc = savedLocation {
+                    // Navigate left first, then delete. Setting selectedID before
+                    // the deletion prevents TabView from snapping back to "current"
+                    // while trying to render the now-gone page ID.
+                    let dest = store.delete(
+                        loc,
+                        currentSelectedID: selectedID?.wrappedValue,
+                        hasCurrentPage: showCurrentPage
+                    )
+                    selectedID?.wrappedValue = dest
+                }
             }
             Button("Cancel", role: .cancel) { }
         } message: {

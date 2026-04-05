@@ -6,6 +6,7 @@ import SwiftUI
 import Combine
 import UIKit
 internal import _LocationEssentials
+internal import CoreLocation
 
 // MARK: - Root
 
@@ -14,18 +15,39 @@ struct ContentView: View {
     @Environment(LocationManager.self) private var locationManager
     @Binding var selectedID: String?
 
-    // Helper to calculate total dots (Current + Saved + Add Page)
-    private var pageCount: Int { 1 + store.saved.count + 1 }
-
-    // Helper to find which dot should be active based on the String ID
-    private var currentIndex: Int {
-        if selectedID == "current" { return 0 }
-        if selectedID == "add" { return pageCount - 1 }
-        if let idString = selectedID,
-           let idx = store.saved.firstIndex(where: { $0.id.uuidString == idString }) {
-            return idx + 1
+    // Whether the GPS/current-location page is shown.
+    // Hidden when the user has explicitly denied or restricted location access.
+    // Reactive: LocationManager publishes authorizationStatus changes live,
+    // so granting permission mid-session shows the page immediately.
+    private var showCurrentPage: Bool {
+        switch locationManager.authorizationStatus {
+        case .denied, .restricted: return false
+        default: return true
         }
-        return 0
+    }
+
+    // Total dots: optionally Current + Saved + Add Page
+    private var pageCount: Int { (showCurrentPage ? 1 : 0) + store.saved.count + 1 }
+
+    // Maps a selectedID string to the dot index, accounting for whether
+    // the current-location page is present.
+    private var currentIndex: Int {
+        if showCurrentPage {
+            if selectedID == "current" { return 0 }
+            if selectedID == "add" { return pageCount - 1 }
+            if let idString = selectedID,
+               let idx = store.saved.firstIndex(where: { $0.id.uuidString == idString }) {
+                return idx + 1
+            }
+            return 0
+        } else {
+            if selectedID == "add" { return pageCount - 1 }
+            if let idString = selectedID,
+               let idx = store.saved.firstIndex(where: { $0.id.uuidString == idString }) {
+                return idx
+            }
+            return 0
+        }
     }
 
     // Tracks whether the currently-visible page has a light background.
@@ -36,14 +58,21 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedID) {
-                // Current Location Page
-                LocationPageView(savedLocation: nil, onBackgroundChange: { isLightBackground = $0 })
-                    .tag("current" as String?)
+                // Current Location Page — hidden when location access is denied/restricted.
+                if showCurrentPage {
+                    LocationPageView(savedLocation: nil, onBackgroundChange: { isLightBackground = $0 })
+                        .tag("current" as String?)
+                }
 
                 // Saved Location Pages
                 ForEach(store.saved) { loc in
-                    LocationPageView(savedLocation: loc, onBackgroundChange: { isLightBackground = $0 })
-                        .tag(loc.id.uuidString as String?)
+                    LocationPageView(
+                        savedLocation: loc,
+                        onBackgroundChange: { isLightBackground = $0 },
+                        selectedID: $selectedID,
+                        showCurrentPage: showCurrentPage
+                    )
+                    .tag(loc.id.uuidString as String?)
                 }
 
                 // Add Location Page — always dark (clear day gradient)
@@ -66,6 +95,7 @@ struct ContentView: View {
                     count: pageCount,
                     currentIndex: currentIndex,
                     isLightBackground: isLightBackground,
+                    showCurrentPage: showCurrentPage,
                     onSelectIndex: { newIndex in
                         selectedID = idForIndex(newIndex)
                     }
@@ -81,12 +111,17 @@ struct ContentView: View {
     private func idForIndex(_ index: Int) -> String? {
         let clamped = min(max(index, 0), pageCount - 1)
 
-        if clamped == 0 { return "current" }
         if clamped == pageCount - 1 { return "add" }
 
-        let savedIndex = clamped - 1
-        guard store.saved.indices.contains(savedIndex) else { return "current" }
-        return store.saved[savedIndex].id.uuidString
+        if showCurrentPage {
+            if clamped == 0 { return "current" }
+            let savedIndex = clamped - 1
+            guard store.saved.indices.contains(savedIndex) else { return "current" }
+            return store.saved[savedIndex].id.uuidString
+        } else {
+            guard store.saved.indices.contains(clamped) else { return "add" }
+            return store.saved[clamped].id.uuidString
+        }
     }
 }
 // MARK: - Custom Page Dots
@@ -96,6 +131,7 @@ struct PageDotsView: View
     let count: Int
     let currentIndex: Int
     let isLightBackground: Bool
+    let showCurrentPage: Bool
     let onSelectIndex: (Int) -> Void
 
     @State private var dragPreviewIndex: Int?
@@ -157,7 +193,7 @@ struct PageDotsView: View
     {
         let isSelected = index == displayIndex
 
-        if index == 0
+        if index == 0 && showCurrentPage
         {
             Image(systemName: "location.fill")
                 .font(.system(size: iconSize))

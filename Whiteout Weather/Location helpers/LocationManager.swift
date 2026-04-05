@@ -6,7 +6,7 @@
  * triggering the high-accuracy location prompt.
  */
 
-import CoreLocation
+internal import CoreLocation
 import Combine
 
 @Observable

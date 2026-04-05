@@ -6,7 +6,7 @@
 
 import SwiftUI
 import MapKit
-import CoreLocation
+internal import CoreLocation
 
 // MARK: - Search Completer Wrapper
 

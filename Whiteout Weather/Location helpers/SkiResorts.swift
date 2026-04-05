@@ -4,7 +4,7 @@
 //
 //  Named ski area → coordinate lookup for WA, OR, ID, MT, UT.
 
-import CoreLocation
+internal import CoreLocation
 
 struct SkiResort {
     let name: String

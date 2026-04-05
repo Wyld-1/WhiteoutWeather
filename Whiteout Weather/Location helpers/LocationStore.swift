@@ -8,7 +8,7 @@
  */
 
 import Foundation
-import CoreLocation
+internal import CoreLocation
 import WidgetKit
 
 struct SavedLocation: Identifiable, Codable, Equatable {
@@ -43,10 +43,39 @@ final class LocationStore {
         syncToWidget()
     }
 
-    func delete(_ location: SavedLocation) {
+    /* Deletes a location and returns the ID of the page that should be selected after deletion.
+     * Navigates left: the saved location before this one, or "current" if this was the first.
+     * Callers should set selectedID to the returned value BEFORE the deletion so SwiftUI's
+     * TabView doesn't try to render the now-gone ID during the transition animation.
+     *
+     * @param location  the location to delete
+     * @param currentSelectedID  the app's current selectedLocationID binding value
+     * @return the ID that should become selected after deletion
+     */
+    func delete(_ location: SavedLocation, currentSelectedID: String?, hasCurrentPage: Bool) -> String? {
+        let idx = saved.firstIndex(where: { $0.id == location.id })
+        let targetID: String?
+        if let idx {
+            if idx == 0 {
+                // First saved location — go to current page if visible, else next saved
+                if hasCurrentPage {
+                    targetID = "current"
+                } else if saved.count > 1 {
+                    targetID = saved[1].id.uuidString
+                } else {
+                    targetID = nil
+                }
+            } else {
+                // Go to the saved location immediately to the left
+                targetID = saved[idx - 1].id.uuidString
+            }
+        } else {
+            targetID = currentSelectedID
+        }
         saved.removeAll { $0.id == location.id }
         persist()
         syncToWidget()
+        return targetID
     }
 
     private func persist() {

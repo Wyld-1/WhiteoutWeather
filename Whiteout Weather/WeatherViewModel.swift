@@ -7,7 +7,7 @@
  */
 
 import Foundation
-import CoreLocation
+internal import CoreLocation
 import Observation
 import MapKit
 import SwiftUI
