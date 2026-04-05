@@ -360,19 +360,35 @@ struct WeatherContentView: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            // Versatile warning slot
+            // Alert banners — driven by NWS Alerts API, capped at 2, sorted by severity.
+            // Wind alerts use the ski-resort label override (Wind Hold Risk vs High Wind Alert).
+            // Background tint opacity scales with severity: Extreme 60%, Severe 40%, Moderate/Minor 15%.
             Group {
-                if let gusts = viewModel.current?.windGusts, gusts >= 40.0 {
-                    WeatherAlertBanner(
-                        title: viewModel.isSkiResort ? "Wind Hold Risk": "High Wind Alert",
-                        message: "Gusts up to \(Int(settings.windSpeed(gusts).rounded())) \(settings.windUnit)",
-                        tintColor: viewModel.isSkiResort ? .red: .yellow,
-                        warningSymbol: "wind.circle.fill"
-                    )
-                    .padding(.horizontal, 16)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                let visibleAlerts = Array(viewModel.alerts.prefix(2))
+                if !visibleAlerts.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(visibleAlerts) { alert in
+                            let cfg = alert.display
+                            // Ski resort override: relabel wind alerts
+                            let title: String = {
+                                let e = alert.event.lowercased()
+                                if e.contains("wind") {
+                                    return viewModel.isSkiResort ? "Wind Hold Risk" : cfg.title
+                                }
+                                return cfg.title
+                            }()
+                            WeatherAlertBanner(
+                                title:         title,
+                                message:       alert.headline,
+                                tintColor:     cfg.color,
+                                warningSymbol: cfg.symbol,
+                                severity:      alert.severity
+                            )
+                            .padding(.horizontal, 16)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
                 }
-                // TODO: Add future warnings with 'if' blocks here
             }
             .padding(.bottom, 4)
             
@@ -509,7 +525,8 @@ struct WeatherAlertBanner: View {
     let title: String
     let message: String
     let tintColor: Color
-    let warningSymbol : String
+    let warningSymbol: String
+    var severity: NWSAlertSeverity = .unknown
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -532,11 +549,12 @@ struct WeatherAlertBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .background(tintColor.opacity(severity.backgroundOpacity))
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(tintColor.opacity(0.6), lineWidth: 3)
+                .stroke(tintColor.opacity(severity.borderOpacity), lineWidth: 3)
         )
     }
 }
@@ -1256,7 +1274,7 @@ struct DayDetailPage: View {
                 // Accumulation callout
                 if day.accumulation.hasAccumulation {
                     HStack(spacing: 8) {
-                        Image(systemName: day.precipType == .rain ? "drop.fill" : "snowflake")
+                        Image(systemName: day.precipType == .snow ? "snowflake" : "drop.fill")
                             .foregroundStyle(.cyan)
                         Text("Accumulation: \(day.accumulation.displayString(settings: settings))")
                             .font(.system(size: 15, weight: .semibold)).foregroundStyle(.cyan)

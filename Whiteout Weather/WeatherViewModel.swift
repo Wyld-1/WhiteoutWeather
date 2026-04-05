@@ -24,6 +24,7 @@ final class WeatherViewModel {
     var daily: [DailyForecast] = []
     var hourly: [HourlyForecast] = []
     var sunEvent: SunEvent?
+    var alerts: [NWSAlert] = []
 
     var locationName: String = ""
     var weatherCondition: WeatherCondition = .clear
@@ -159,7 +160,7 @@ final class WeatherViewModel {
         }
 
         do {
-            let (cur, days, allHourly, sun, scraped, utcOffset) = try await WeatherRepository.shared.fetchAll(
+            let (cur, days, allHourly, sun, scraped, utcOffset, fetchedAlerts) = try await WeatherRepository.shared.fetchAll(
                 lat: coordinate.latitude,
                 lon: coordinate.longitude
             )
@@ -168,6 +169,7 @@ final class WeatherViewModel {
             daily    = days
             sunEvent = sun
             hourly   = hourlyWindow(from: allHourly)
+            alerts   = fetchedAlerts
 
             // Prefer the NOAA tombstone for the current period (day or night).
             // At night, dayCondition is gone — fall through to nightCondition,

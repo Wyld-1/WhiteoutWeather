@@ -28,7 +28,9 @@ enum PrecipType {
         let hasSnow = text.contains("snow") || text.contains("flurr") ||
                       text.contains("blizzard") || text.contains("sleet") ||
                       text.contains("wintry mix")
-        let hasRain = text.contains("rain") || text.contains("shower") || text.contains("drizzle")
+        // Exclude "snow shower" from the rain bucket — it contains "shower" but is snow.
+        let hasRainShower = text.contains("shower") && !text.contains("snow shower")
+        let hasRain = text.contains("rain") || hasRainShower || text.contains("drizzle")
         if hasSnow && hasRain { return .mixed }
         if hasSnow             { return .snow }
         if hasRain             { return .rain }

@@ -140,20 +140,25 @@ actor WeatherRepository {
      * @throws if the Open-Meteo fetch fails (NOAA failure is non-fatal)
      */
     func fetchAll(lat: Double, lon: Double) async throws -> (
-        CurrentConditions, [DailyForecast], [HourlyForecast], SunEvent, [String: NOAAScraper.ScrapedPeriod], Int
+        CurrentConditions, [DailyForecast], [HourlyForecast], SunEvent, [String: NOAAScraper.ScrapedPeriod], Int, [NWSAlert]
     ) {
         // Fetch OM first so we have the location's real timezone before parsing
         // NOAA periods. The NOAA scraper uses the timezone to seed its date cursor,
         // which must match the location's local "today" — not the device's.
-        let om   = try await OpenMeteoClient.shared.fetch(lat: lat, lon: lon)
-        let tz   = TimeZone(secondsFromGMT: om.utcOffsetSeconds) ?? .current
-        let noaa = (try? await NOAAScraper.shared.fetchProse(lat: lat, lon: lon, tz: tz)) ?? [:]
+        // Alerts are fetched concurrently and are best-effort — never block on failure.
+        async let omFetch   = OpenMeteoClient.shared.fetch(lat: lat, lon: lon)
+        async let alertsFetch = NWSAlertClient.shared.fetchAlerts(lat: lat, lon: lon)
+
+        let om     = try await omFetch
+        let alerts = await alertsFetch
+        let tz     = TimeZone(secondsFromGMT: om.utcOffsetSeconds) ?? .current
+        let noaa   = (try? await NOAAScraper.shared.fetchProse(lat: lat, lon: lon, tz: tz)) ?? [:]
 
         let current   = buildCurrentConditions(om: om, noaa: noaa, tz: tz)
         let allHourly = buildHourly(om: om, tz: tz)
         let (daily, sun) = buildDaily(om: om, noaa: noaa, allHourly: allHourly, tz: tz, current: current)
 
-        return (current, daily, allHourly, sun, noaa, om.utcOffsetSeconds)
+        return (current, daily, allHourly, sun, noaa, om.utcOffsetSeconds, alerts)
     }
 
     /* Builds current conditions, preferring the NOAA tombstone label over the WMO description.

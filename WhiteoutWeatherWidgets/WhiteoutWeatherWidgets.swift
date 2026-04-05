@@ -4,6 +4,7 @@
 import WidgetKit
 import SwiftUI
 import CoreLocation
+import UIKit
 
 // MARK: - Timeline Provider
 
@@ -36,7 +37,7 @@ struct Provider: AppIntentTimelineProvider {
         // Fetch fresh data if we have coordinates
         if let lat, let lon {
             do {
-                let (cur, days, _, _, _, _) = try await WeatherRepository.shared.fetchAll(lat: lat, lon: lon)
+                let (cur, days, _, _, _, _, alerts) = try await WeatherRepository.shared.fetchAll(lat: lat, lon: lon)
                 guard let firstDay = days.first else { throw URLError(.badServerResponse) }
 
                 // Geocode to get the nearest city name independently of the main app.
@@ -69,6 +70,12 @@ struct Provider: AppIntentTimelineProvider {
                 let currentSymbol = noaaSFSymbol(condition: cur.description, isDay: cur.isDay)
                                  ?? wmoSFSymbol(code: cur.weatherCode, isDay: cur.isDay)
 
+                // Top alert for the widget icon slot — highest severity wins.
+                // Color is stored as raw RGB doubles (Codable-safe; SwiftUI.Color is not).
+                let topAlert  = alerts.first
+                let alertCfg  = topAlert.map { NWSAlert.displayConfig(for: $0.event) }
+                let alertRGBA = alertCfg.map { UIColor($0.color).rgbaComponents }
+
                 let fresh = WidgetWeatherData(
                     id:                 id,
                     lat:                lat,
@@ -85,7 +92,11 @@ struct Provider: AppIntentTimelineProvider {
                     accumDisplayString: firstDay.accumulation.hasAccumulation ? firstDay.accumulation.displayString() : nil,
                     dayProse:           firstDay.dayProse,
                     nightProse:         firstDay.nightProse,
-                    fetchedAt:          now
+                    fetchedAt:          now,
+                    alertSymbol:        alertCfg?.symbol,
+                    alertColorRed:      alertRGBA?.r,
+                    alertColorGreen:    alertRGBA?.g,
+                    alertColorBlue:     alertRGBA?.b
                 )
                 fresh.save()
                 return Timeline(entries: [WeatherEntry(date: now, data: fresh)],
@@ -153,7 +164,7 @@ struct WidgetEntryView: View {
 }
 
 // MARK: - Lock Screen Widget (.accessoryCircular)
-// Gauge from low → high with current temp. SF symbol in the center.
+// Gauge from low to high with current temp. SF symbol in the center.
 
 struct LockScreenWidget: View {
     let data: WidgetWeatherData
@@ -227,14 +238,22 @@ struct MediumWidget: View {
 struct WeatherInfoPanel: View {
     let data: WidgetWeatherData
     private let settings = AppSettings.shared
-    private var hasWindAlert: Bool { (data.windGusts ?? 0) >= 40.0 }
+
+    // Reconstruct the alert color from stored RGBA components.
+    // SwiftUI.Color is not Codable, so raw doubles are stored and rebuilt here.
+    private var alertColor: Color? {
+        guard let r = data.alertColorRed,
+              let g = data.alertColorGreen,
+              let b = data.alertColorBlue else { return nil }
+        return Color(red: r, green: g, blue: b)
+    }
 
     var body: some View {
         // Outer VStack: location header pinned top, H/L pinned bottom,
         // everything in between fills available space evenly.
         VStack(alignment: .leading, spacing: 0) {
 
-            // ── TOP: location name + wind alert ──────────────────────────
+            // TOP: location name + NWS alert icon (highest severity, or empty)
             HStack(spacing: 4) {
                 if data.id == "current" {
                     Image(systemName: "location.fill")
@@ -246,17 +265,17 @@ struct WeatherInfoPanel: View {
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
                 Spacer()
-                if hasWindAlert {
-                    Image(systemName: "wind.circle.fill")
+                if let symbol = data.alertSymbol, let color = alertColor {
+                    Image(systemName: symbol)
                         .font(.system(size: 20))
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(color)
                 }
             }
             .shadow(color: .black.opacity(0.3), radius: 2)
 
-            // ── MIDDLE: symbol + precip + temperature ────────────────────
+            // MIDDLE: symbol + precip + temperature
             VStack(alignment: .center, spacing: 0) {
-                Spacer(minLength: data.precipProbability >= 20 ? 0: 12)
+                Spacer(minLength: data.precipProbability >= 20 ? 0 : 12)
 
                 VStack(spacing: 0) {
                     Image(systemName: data.sfSymbol)
@@ -279,8 +298,8 @@ struct WeatherInfoPanel: View {
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 52, maxHeight: 52, alignment: .top)
-                
-                Spacer(minLength: data.precipProbability >= 20 ? 14: 0)
+
+                Spacer(minLength: data.precipProbability >= 20 ? 14 : 0)
 
                 Text("\(Int(settings.temperature(data.temperature).rounded()))°")
                     .font(.system(size: 38, weight: .medium, design: .rounded))
@@ -291,7 +310,7 @@ struct WeatherInfoPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // ── BOTTOM: H/L or accumulation ──────────────────────────────
+            // BOTTOM: H/L or accumulation
             Group {
                 if let accum = data.accumDisplayString, !accum.isEmpty {
                     HStack(spacing: 4) {
@@ -323,13 +342,23 @@ struct WidgetBackground: View {
     let isDay: Bool
 
     var body: some View {
-        // Default to .clear if the string doesn't match
         let resolvedCondition = WeatherCondition.fromCondition(condition) ?? .clear
-        
         let resolvedTime = WeatherTimeOfDay.from(isDay: isDay)
-        
         let colors = weatherGradientColors(condition: resolvedCondition, timeOfDay: resolvedTime)
-        
         LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+// MARK: - UIColor RGBA Helper
+
+/* Extracts linear sRGB components from any SwiftUI Color via UIColor.
+ * Used to store alert colors in WidgetWeatherData (which must be Codable).
+ * SwiftUI.Color itself is not Codable, so we persist raw doubles and rebuild.
+ */
+extension UIColor {
+    var rgbaComponents: (r: Double, g: Double, b: Double, a: Double) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (Double(r), Double(g), Double(b), Double(a))
     }
 }

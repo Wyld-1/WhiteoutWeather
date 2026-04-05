@@ -52,9 +52,37 @@ struct LocationPageView: View {
                     .frame(width: 300, height: 4)
 
                 if let error = viewModel.errorMessage {
-                    Spacer()
-                    ErrorView(message: error) { triggerFetch() }
-                    Spacer()
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack {
+                            Spacer(minLength: 0)
+                            ErrorView(message: error) {
+                                guard let coord = coordinate else { return }
+                                Task {
+                                    await viewModel.load(
+                                        coordinate:   coord,
+                                        locationID:   savedLocation?.id.uuidString,
+                                        skipGeocode:  savedLocation != nil,
+                                        forceRefresh: true
+                                    )
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .frame(minHeight: UIScreen.main.bounds.height * 0.6)
+                    }
+                    .refreshable {
+                        guard let coord = coordinate else { return }
+                        let locationID  = savedLocation?.id.uuidString
+                        let skipGeocode = savedLocation != nil
+                        await Task.detached(priority: .userInitiated) {
+                            await viewModel.load(
+                                coordinate:   coord,
+                                locationID:   locationID,
+                                skipGeocode:  skipGeocode,
+                                forceRefresh: true
+                            )
+                        }.value
+                    }
 
                 } else if viewModel.daily.isEmpty {
                     Spacer()
@@ -85,7 +113,7 @@ struct LocationPageView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.8))
                                 .shadow(color: .black, radius: 1)
-                                .padding(.bottom, 85)
+                                .padding(.bottom, 95)
                         }
                         .mask(
                             LinearGradient(
@@ -278,10 +306,11 @@ struct ErrorView: View {
             Image("WhiteoutSleeping")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(height: 200)
-                .padding(.vertical, 10)
+                .frame(height: 250)
+                .padding(.vertical, -50)
             Text(message)
                 .font(.system(size: 15))
+                .bold()
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -291,6 +320,7 @@ struct ErrorView: View {
             }
             .buttonStyle(.bordered)
             .tint(.white)
+            .shadow(radius: 3)
         }
     }
 }

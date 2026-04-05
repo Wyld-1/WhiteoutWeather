@@ -27,6 +27,11 @@ struct WidgetWeatherData: Codable {
     let dayProse: String
     let nightProse: String
     let fetchedAt: Date
+    // Top NWS alert for the widget icon slot. nil when no active alerts.
+    let alertSymbol: String?
+    let alertColorRed: Double?
+    let alertColorGreen: Double?
+    let alertColorBlue: Double?
 
     static let groupID = "group.weather.widgetinfo"
 
@@ -61,7 +66,9 @@ struct WidgetWeatherData: Codable {
             accumDisplayString: nil,
             dayProse: "Fetching forecast...",
             nightProse: "",
-            fetchedAt: Date()
+            fetchedAt: Date(),
+            alertSymbol: nil,
+            alertColorRed: nil, alertColorGreen: nil, alertColorBlue: nil
         )
     }
 }
