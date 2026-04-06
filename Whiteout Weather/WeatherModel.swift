@@ -289,14 +289,12 @@ actor WeatherRepository {
                 }
                 return nil
             }()
-            // Only expose nightSymbol when it differs meaningfully from the day symbol.
-            // A clear day (sun.max.fill) and a clear night (moon.stars.fill) look different
-            // but represent the same sky condition — showing both in the detail sheet
-            // would be misleading. We only want the night symbol when it conveys
-            // genuinely different information (i.e. the conditions are severe).
+            // nightSymbol: always set when night prose exists, so the DayDetailPage
+            // night prose card always shows the correct resolved night symbol.
+            let nightSymbol: String? = nightSymbolResolved
+            // rowNightSymbol: only shown in the 7-day row when conditions are
+            // dramatically different — guards against cluttering routine clear→clear days.
             let nightIsSevere = conditionsAreNightSevere(day: dayCond, night: nightCond)
-            let nightSymbol: String? = nightIsSevere ? nightSymbolResolved : nil
-            // rowNightSymbol gates the dual-symbol in the 7-day row — same condition.
             let rowNightSymbol: String? = nightIsSevere ? nightSymbolResolved : nil
             let condLabel = !dayCond.isEmpty ? dayCond : wmoDescription(code: wmoCode, isDay: true)
 

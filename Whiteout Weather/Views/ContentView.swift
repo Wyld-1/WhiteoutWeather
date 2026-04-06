@@ -919,9 +919,13 @@ struct WindCard: View {
                     }
                     .frame(maxWidth: .infinity)
 
-                    CompassRose(degrees: windDegrees)
-                        .frame(width: 110, height: 110)
-                        .padding(.trailing, 8)
+                    CompassRose(
+                        degrees: windDegrees,
+                        speedLabel: "\(Int(settings.windSpeed(windSpeed).rounded()))",
+                        unitLabel: settings.windUnit
+                    )
+                    .frame(width: 120, height: 120)
+                    .padding(.trailing, 8)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
@@ -945,51 +949,106 @@ struct WindStatRow: View {
 
 struct CompassRose: View {
     let degrees: Double
-    // Wind direction is where the wind comes FROM — point the needle
-    // at that bearing directly. No +180 offset needed.
-    private var needleDeg: Double { degrees }
+    let speedLabel: String
+    let unitLabel: String
+
+    private var sourceRad: Double { (degrees - 90) * .pi / 180 }
+    private var destRad:   Double { (degrees + 180 - 90) * .pi / 180 }
 
     var body: some View {
-        Canvas { ctx, size in
-            let cx = size.width / 2
-            let cy = size.height / 2
-            let r  = min(cx, cy) - 2
-
-            for i in 0..<72 {
-                let angle = Double(i) * 5.0 * .pi / 180
-                let isMajor = i % 18 == 0
-                let isMed   = i % 9 == 0 && !isMajor
-                let tickLen: CGFloat = isMajor ? 8 : isMed ? 5 : 3
-                let opacity: CGFloat = isMajor ? 0.6 : isMed ? 0.35 : 0.18
-                
-                let x1 = cx + CGFloat(cos(angle - .pi/2)) * r
-                let y1 = cy + CGFloat(sin(angle - .pi/2)) * r
-                let x2 = cx + CGFloat(cos(angle - .pi/2)) * (r - tickLen)
-                let y2 = cy + CGFloat(sin(angle - .pi/2)) * (r - tickLen)
-                
-                var tick = Path()
-                tick.move(to: CGPoint(x: x1, y: y1))
-                tick.addLine(to: CGPoint(x: x2, y: y2))
-                ctx.stroke(tick, with: .color(.white.opacity(opacity)), style: StrokeStyle(lineWidth: isMajor ? 1.5 : 1, lineCap: .round))
-            }
-
-            let needleRad = (needleDeg - 90) * .pi / 180
-            let needleLen = r - 10
-            var needle = Path()
-            needle.move(to: CGPoint(x: cx, y: cy))
-            needle.addLine(to: CGPoint(x: cx + CGFloat(cos(needleRad)) * needleLen, y: cy + CGFloat(sin(needleRad)) * needleLen))
-            ctx.stroke(needle, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-
-            let dotR: CGFloat = 4
-            ctx.fill(Path(ellipseIn: CGRect(x: cx - dotR, y: cy - dotR, width: dotR*2, height: dotR*2)), with: .color(.white))
-        }
-        .overlay {
+        GeometryReader { geo in
+            let cx = geo.size.width  / 2
+            let cy = geo.size.height / 2
+            let r  = min(cx, cy) - 10
+            
+            let centerGap: CGFloat = 26
+            let headPositionR: CGFloat = r - 6
+            
             ZStack {
-                let labelR: CGFloat = 32
+                // Ticks
+                Canvas { ctx, size in
+                    for i in 0..<36 {
+                        let isCardinalZone = [0, 1, 35, 8, 9, 10, 17, 18, 19, 26, 27, 28].contains(i)
+                        if isCardinalZone { continue }
+                        
+                        let angle = Double(i) * (10 * .pi / 180)
+                        let isMed = i % 3 == 0
+                        let innerR = r - (isMed ? 7 : 4)
+                        
+                        let x1 = cx + CGFloat(cos(angle - .pi/2)) * r
+                        let y1 = cy + CGFloat(sin(angle - .pi/2)) * r
+                        let x2 = cx + CGFloat(cos(angle - .pi/2)) * innerR
+                        let y2 = cy + CGFloat(sin(angle - .pi/2)) * innerR
+
+                        var path = Path()
+                        path.move(to: CGPoint(x: x1, y: y1))
+                        path.addLine(to: CGPoint(x: x2, y: y2))
+                        ctx.stroke(path, with: .color(.white.opacity(isMed ? 0.3 : 0.15)), lineWidth: 1)
+                    }
+                }
+
+                // Cardinal Labels
                 ForEach([("N", 0.0), ("E", 90.0), ("S", 180.0), ("W", 270.0)], id: \.0) { label, deg in
                     let rad = (deg - 90) * .pi / 180
-                    Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
-                        .offset(x: CGFloat(cos(rad)) * labelR, y: CGFloat(sin(rad)) * labelR)
+                    Text(label)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .position(
+                            x: cx + CGFloat(cos(rad)) * r,
+                            y: cy + CGFloat(sin(rad)) * r
+                        )
+                }
+
+                // Arrow Shafts & Tail Circle
+                Canvas { ctx, size in
+                    // --- TAIL ---
+                    let tailPoint = CGPoint(
+                        x: cx + CGFloat(cos(sourceRad)) * r,
+                        y: cy + CGFloat(sin(sourceRad)) * r
+                    )
+                    ctx.fill(Path(ellipseIn: CGRect(x:tailPoint.x - 5,
+                                                    y: tailPoint.y - 5,
+                                                    width: 10,
+                                                    height: 10)),
+                             with: .color(.white))
+                    
+                    var tailSegment = Path()
+                    tailSegment.move(to: tailPoint)
+                    tailSegment.addLine(to: CGPoint(x: cx + CGFloat(cos(sourceRad)) * centerGap, y: cy + CGFloat(sin(sourceRad)) * centerGap))
+                    
+                    ctx.stroke(tailSegment,
+                               with: .color(.white),
+                               style: StrokeStyle(lineWidth: 3, lineCap: .round))
+
+                    // --- HEAD ---
+                    var headSegment = Path()
+                    headSegment.move(to: CGPoint(x: cx + CGFloat(cos(destRad)) * (headPositionR + 4), y: cy + CGFloat(sin(destRad)) * (headPositionR + 4)))
+                    headSegment.addLine(to: CGPoint(x: cx + CGFloat(cos(destRad)) * centerGap, y: cy + CGFloat(sin(destRad)) * centerGap))
+                    
+                    ctx.stroke(headSegment,
+                               with: .color(.white),
+                               style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                }
+
+                // Arrowhead (SF Symbol)
+                Image(systemName: "location.fill")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(.white)
+                    .rotationEffect(.degrees(45) + .radians(destRad))
+                    .offset(x: -0.8, y: 0.8)
+                    .position(
+                        x: cx + CGFloat(cos(destRad)) * headPositionR,
+                        y: cy + CGFloat(sin(destRad)) * headPositionR
+                    )
+
+                // Center Labels
+                VStack(spacing: -2) {
+                    Text(speedLabel)
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(unitLabel)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.6))
                 }
             }
         }
