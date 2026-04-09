@@ -41,22 +41,25 @@ struct Provider: AppIntentTimelineProvider {
         let now = Date()
         let cached = WidgetWeatherData.load(id: id)
 
-        // Skip a live fetch if the cache is still fresh AND the location hasn't changed.
-        // WidgetKit calls timeline() on its own schedule AND whenever the app
-        // calls reloadAllTimelines() (e.g. on foreground). The staleness guard
-        // prevents a network hit every single time the user unlocks their phone.
-        // Exception: if the App Group has fresher coordinates than the cache
-        // (e.g. the device moved to a new city), force a re-fetch immediately.
+        // Staleness guard: skip the network if cache is fresh AND the stored
+        // coordinate hasn't changed since the last fetch.
+        //
+        // IMPORTANT: a nil registry entry is NOT "location unchanged" — it means
+        // the main app hasn't run yet and written coordinates. In that case we must
+        // attempt a fetch so the widget can bootstrap itself via CLLocationManager.
         let appGroupCoords = UserDefaults(suiteName: WidgetWeatherData.groupID)?
             .dictionary(forKey: "saved_location_coords") as? [String: String]
-        let registryCoordString = appGroupCoords?[id]
-        let cacheCoordString = cached.map { "\($0.lat),\($0.lon)" }
-        let locationUnchanged = registryCoordString == nil || registryCoordString == cacheCoordString
+        let registryCoordString = appGroupCoords?[id]   // nil = never written by main app
+        let cacheCoordString    = cached.map { "\($0.lat),\($0.lon)" }
+
+        // Only treat location as unchanged when the registry actually has an entry
+        // that matches the cache. nil registry → force fetch.
+        let locationUnchanged = registryCoordString != nil && registryCoordString == cacheCoordString
 
         if let cached,
            locationUnchanged,
            Date().timeIntervalSince(cached.fetchedAt) < cacheStaleInterval {
-            // Return the cached entry and ask WidgetKit to check back when it expires.
+            // Cache is fresh and coordinate hasn't moved — serve it and reschedule.
             let nextRefresh = cached.fetchedAt.addingTimeInterval(cacheStaleInterval)
             return Timeline(
                 entries: [WeatherEntry(date: now, data: cached)],
@@ -66,15 +69,18 @@ struct Provider: AppIntentTimelineProvider {
 
         // Fetch fresh data.
         if let entry = await fetchEntry(id: id, cached: cached) {
-            // Refresh again in 30 minutes, and also whenever these entries are consumed.
+            // Refresh again in 30 minutes.
             let nextRefresh = now.addingTimeInterval(1800)
             return Timeline(entries: [entry], policy: .after(nextRefresh))
         }
 
-        // Fetch failed — show stale cache and retry in 15 minutes.
+        // Fetch failed — show stale cache (or placeholder) and retry soon.
+        // Use 5 minutes on cold-start (no cache) so the widget recovers quickly
+        // once the user opens the main app and coordinates are written.
+        let retryInterval: TimeInterval = cached == nil ? 300 : 900
         return Timeline(
             entries: [WeatherEntry(date: now, data: cached ?? .placeholder)],
-            policy: .after(now.addingTimeInterval(900))
+            policy: .after(now.addingTimeInterval(retryInterval))
         )
     }
 }
@@ -86,25 +92,49 @@ struct Provider: AppIntentTimelineProvider {
  * main app — so symbol, condition, temperature, and high/low are always derived
  * by identical logic. Returns nil if coordinates can't be resolved or the fetch
  * throws. Writes the result to the shared App Group cache on success.
+ *
+ * Coordinate resolution priority:
+ *  1. App Group registry (written by main app on every fetch)
+ *  2. Cache lat/lon (from a previous successful widget fetch)
+ *  3. CLLocationManager.lastKnownLocation (cold-start: main app never ran)
+ * If all three are nil, returns nil — nothing we can do without a coordinate.
  */
 private func fetchEntry(id: String, cached: WidgetWeatherData?) async -> WeatherEntry? {
     let now = Date()
 
-    // Resolve coordinates — ALWAYS prefer the App Group registry over cache.
-    // The device may have moved since the cache was written ("current" location),
-    // so we must read the freshest coordinates the main app has published.
-    // Cache lat/lon is used only as a last resort when the App Group has nothing.
     let sharedDefaults = UserDefaults(suiteName: WidgetWeatherData.groupID)
     let registry = sharedDefaults?.dictionary(forKey: "saved_location_coords") as? [String: String] ?? [:]
     var lat: Double?
     var lon: Double?
+
+    // 1. App Group registry — freshest source, written by the main app.
     if let coords = registry[id]?.split(separator: ","), coords.count == 2 {
         lat = Double(coords[0]); lon = Double(coords[1])
     }
+
+    // 2. Cache — from a previous successful widget fetch.
     if lat == nil || lon == nil {
         lat = cached?.lat
         lon = cached?.lon
     }
+
+    // 3. CLLocationManager.lastKnownLocation — cold-start fallback for "current".
+    // Widget extensions cannot request authorization, but they can read the
+    // last-known location if the user already granted access to the main app.
+    // This lets the widget bootstrap itself the very first time, before the
+    // main app has written anything to the App Group.
+    if (lat == nil || lon == nil), id == "current" {
+        if let clCoord = lastKnownCLLocation() {
+            lat = clCoord.latitude
+            lon = clCoord.longitude
+            // Write these coordinates to the App Group so subsequent timeline()
+            // calls don't have to hit CLLocationManager again.
+            var coords = sharedDefaults?.dictionary(forKey: "saved_location_coords") as? [String: String] ?? [:]
+            coords[id] = "\(clCoord.latitude),\(clCoord.longitude)"
+            sharedDefaults?.set(coords, forKey: "saved_location_coords")
+        }
+    }
+
     guard let lat, let lon else { return nil }
 
     do {
@@ -184,6 +214,20 @@ private func fetchEntry(id: String, cached: WidgetWeatherData?) async -> Weather
     } catch {
         return nil
     }
+}
+
+/* Returns the last-known device location from CLLocationManager without
+ * requesting authorization. Works in widget extensions when the user has
+ * already granted location access to the main app target.
+ * Returns nil when authorization has never been granted or location is unavailable.
+ */
+private func lastKnownCLLocation() -> CLLocationCoordinate2D? {
+    let manager = CLLocationManager()
+    // Authorization status is shared across the app group — if the main app
+    // was granted .authorizedWhenInUse or .authorizedAlways, the widget can read.
+    guard manager.authorizationStatus == .authorizedWhenInUse
+       || manager.authorizationStatus == .authorizedAlways else { return nil }
+    return manager.location?.coordinate
 }
 
 /* Reverse-geocodes a coordinate to the nearest city name using CLGeocoder.

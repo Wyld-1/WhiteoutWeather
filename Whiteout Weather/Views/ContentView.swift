@@ -1268,6 +1268,7 @@ struct DayDetailSheet: View {
     let globalHigh: Double
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex: Int
+    @State private var tabSelection: Int
 
     init(days: [DailyForecast], startIndex: Int, globalLow: Double, globalHigh: Double) {
         self.days = days
@@ -1275,6 +1276,7 @@ struct DayDetailSheet: View {
         self.globalLow = globalLow
         self.globalHigh = globalHigh
         self._currentIndex = State(initialValue: startIndex)
+        self._tabSelection  = State(initialValue: startIndex)
     }
 
     var body: some View {
@@ -1284,7 +1286,7 @@ struct DayDetailSheet: View {
                     .padding(.top, 8)
 
                 ZStack(alignment: .bottom) {
-                    TabView(selection: $currentIndex) {
+                    TabView(selection: $tabSelection) {
                         ForEach(days.indices, id: \.self) { i in
                             DayDetailPage(
                                 day: days[i],
@@ -1295,7 +1297,12 @@ struct DayDetailSheet: View {
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .animation(.easeInOut, value: currentIndex)
+                    .onChange(of: currentIndex) { _, newValue in
+                        withAnimation(.easeInOut) { tabSelection = newValue }
+                    }
+                    .onChange(of: tabSelection) { _, newValue in
+                        if newValue != currentIndex { currentIndex = newValue }
+                    }
 
                     // Fade content into the home indicator area.
                     LinearGradient(
@@ -1375,7 +1382,6 @@ struct DateStrip: View {
                     Capsule()
                     .fill(Color.barrelRed)
                     .frame(width: 28, height: 4)
-                        // Math centers the 28pt bar within the current cell's width
                         .offset(x: (CGFloat(currentIndex) * cellWidth) + (cellWidth / 2) - 14)
                         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: currentIndex)
                         .padding(.bottom, 4)
@@ -1412,8 +1418,6 @@ struct DayDetailPage: View {
             VStack(alignment: .leading, spacing: 20) {
 
                 // Header: day name, H/L, symbol
-                // When day prose was substituted with night prose (evening/today-only case),
-                // dayProse == nightProse. In that case show the night symbol in the header.
                 let dayProseIsSubstituted = Calendar.current.isDateInToday(day.date)
                     && !day.nightProse.isEmpty
                     && day.dayProse == day.nightProse
@@ -1523,114 +1527,203 @@ struct ForecastProseCard: View {
 
 struct InteractiveTempGraph: View {
     let points: [HourlyForecast]
-    let globalLow: Double   // already converted to display units by caller
-    let globalHigh: Double  // already converted to display units by caller
+    let globalLow: Double
+    let globalHigh: Double
     @EnvironmentObject private var settings: AppSettings
-
     @State private var dragX: CGFloat? = nil
-    private let topPad: CGFloat = 28
-    private let bottomPad: CGFloat = 20
-    private let sidePad: CGFloat = 8
 
-    // Coarse filtering
-    private var coarsePoints: [HourlyForecast] {
-        var seenHours = Set<String>()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMddHH"
-        
-        return points.filter { p in
-            let key = formatter.string(from: p.time)
-            if seenHours.contains(key) { return false }
-            seenHours.insert(key)
-            return true
-        }
+    private let topPad:    CGFloat = 32
+    private let bottomPad: CGFloat = 20
+    private let leftPad:   CGFloat = 36
+    private let rightPad:  CGFloat = 8
+
+    private var hourlyPoints: [HourlyForecast] {
+        var seen = Set<String>()
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyyMMddHH"
+        return points.filter { seen.insert(fmt.string(from: $0.time)).inserted }
+    }
+
+    // Instance-method helpers
+    private func cx(i: Int, count: Int, lp: CGFloat, pw: CGFloat) -> CGFloat {
+        lp + pw * CGFloat(i) / CGFloat(max(count - 1, 1))
+    }
+    private func cy(temp: Double, lo: Double, rng: Double, tp: CGFloat, ph: CGFloat) -> CGFloat {
+        tp + ph * CGFloat(1.0 - (temp - lo) / rng)
     }
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width; let h = geo.size.height
-            let plotH = h - topPad - bottomPad; let plotW = w - 2 * sidePad
-            let range = max(globalHigh - globalLow, 1)
-            
-            let displayPoints = coarsePoints
-            
-            let pts: [(CGFloat, CGFloat)] = displayPoints.enumerated().map { idx, p in
-                let x    = sidePad + plotW * CGFloat(idx) / CGFloat(max(displayPoints.count - 1, 1))
-                let disp = settings.temperature(p.temperature)
-                let y    = topPad + plotH * CGFloat(1 - (disp - globalLow) / range)
-                return (x, y)
-            }
+            let w  = geo.size.width,  h  = geo.size.height
+            let pw = w - leftPad - rightPad
+            let ph = h - topPad - bottomPad
+            let pts = hourlyPoints
+            let rng = max(globalHigh - globalLow, 1)
 
-            let hovIdx: Int? = dragX.map { dx in
-                let frac = (max(sidePad, min(w - sidePad, dx)) - sidePad) / plotW
-                return max(0, min(displayPoints.count - 1, Int((frac * CGFloat(displayPoints.count - 1)).rounded())))
-            }
+            if pts.count > 1 {
+                let cp: [(CGFloat, CGFloat)] = pts.indices.map { i in
+                    (cx(i: i, count: pts.count, lp: leftPad, pw: pw),
+                     cy(temp: settings.temperature(pts[i].temperature),
+                        lo: globalLow, rng: rng, tp: topPad, ph: ph))
+                }
 
-            ZStack(alignment: .topLeading) {
-                if pts.count > 1 {
+                let fracIdx: Double? = dragX.map { dx in
+                    Double(max(leftPad, min(w - rightPad, dx)) - leftPad) / Double(pw) * Double(pts.count - 1)
+                }
+                let dragPos: CGPoint? = fracIdx.map { f in
+                    let lo = max(0, Int(f)), hi = min(pts.count - 1, lo + 1)
+                    let t  = CGFloat(f - Double(lo))
+                    return CGPoint(x: cp[lo].0 + (cp[hi].0 - cp[lo].0) * t,
+                                   y: catmullRomY(pts: cp, i: lo, t: t))
+                }
+                let dragTemp: Double? = fracIdx.map { f in
+                    let lo = max(0, Int(f)), hi = min(pts.count - 1, lo + 1)
+                    let t  = f - Double(lo)
+                    return (settings.temperature(pts[lo].temperature) * (1 - t)
+                          + settings.temperature(pts[hi].temperature) * t).rounded()
+                }
+
+                let dispTemps = pts.map { settings.temperature($0.temperature) }
+                let maxT = dispTemps.max() ?? globalHigh
+                let minT = dispTemps.min() ?? globalLow
+                let maxI = dispTemps.firstIndex(of: maxT) ?? 0
+                let minI = dispTemps.firstIndex(of: minT) ?? 0
+
+                let yRefs: [Double] = {
+                    let step = (globalHigh - globalLow) / 3
+                    return [globalLow + step, globalLow + step * 2]
+                        .map { (($0 / 5).rounded() * 5) }
+                }()
+
+                ZStack(alignment: .topLeading) {
+                    // Y-axis grid + labels
+                    ForEach(yRefs, id: \.self) { temp in
+                        let y = cy(temp: temp, lo: globalLow, rng: rng, tp: topPad, ph: ph)
+                        Path { p in
+                            p.move(to: CGPoint(x: leftPad, y: y))
+                            p.addLine(to: CGPoint(x: w - rightPad, y: y))
+                        }
+                        .stroke(Color.white.opacity(0.08),
+                                style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        Text("\(Int(temp.rounded()))°")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .position(x: leftPad / 2, y: y)
+                    }
+
+                    // Fill
                     Path { path in
-                        path.move(to: CGPoint(x: pts[0].0, y: topPad + plotH))
-                        path.addLine(to: CGPoint(x: pts[0].0, y: pts[0].1))
-                        addCurve(to: &path, pts: pts)
-                        path.addLine(to: CGPoint(x: pts.last!.0, y: topPad + plotH))
+                        path.move(to: CGPoint(x: cp[0].0, y: topPad + ph))
+                        path.addLine(to: CGPoint(x: cp[0].0, y: cp[0].1))
+                        catmullRomPath(into: &path, pts: cp)
+                        path.addLine(to: CGPoint(x: cp.last!.0, y: topPad + ph))
                         path.closeSubpath()
                     }
-                    .fill(LinearGradient(colors: [.barrelRed.opacity(0.35), .barrelRed.opacity(0.03)], startPoint: .top, endPoint: .bottom))
+                    .fill(LinearGradient(colors: [.barrelRed.opacity(0.30), .barrelRedLight.opacity(0.01)],
+                                        startPoint: .top, endPoint: .bottom))
 
+                    // Stroke
                     Path { path in
-                        path.move(to: CGPoint(x: pts[0].0, y: pts[0].1))
-                        addCurve(to: &path, pts: pts)
+                        path.move(to: CGPoint(x: cp[0].0, y: cp[0].1))
+                        catmullRomPath(into: &path, pts: cp)
                     }
                     .stroke(
-                        LinearGradient(colors: [.barrelRedLight, .barrelRed], startPoint: .leading, endPoint: .trailing),
-                        lineWidth: 6
+                        LinearGradient(colors: [.barrelRed.opacity(0.8), .barrelRed],
+                                       startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
                     )
-                }
 
-                ForEach(Array(displayPoints.enumerated()), id: \.offset) { idx, p in
-                    if idx % 4 == 0 {
-                        Text(hourLabel(p.time))
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .position(x: pts[idx].0, y: h - bottomPad / 2)
+                    // High marker
+                    let hx = cp[maxI].0, hy = cp[maxI].1
+                    Circle().fill(Color.orange.opacity(0.85))
+                        .frame(width: 9, height: 9)
+                        .position(x: hx, y: hy)
+                    Text("H:\(Int(maxT.rounded()))°")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.orange)
+                        .position(x: min(max(hx, leftPad + 16), w - rightPad - 16), y: hy - 13)
+
+                    // Low marker
+                    let lx = cp[minI].0, ly = cp[minI].1
+                    Circle().fill(Color.cyan.opacity(0.85))
+                        .frame(width: 9, height: 9)
+                        .position(x: lx, y: ly)
+                    Text("L:\(Int(minT.rounded()))°")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.cyan)
+                        .position(x: min(max(lx, leftPad + 16), w - rightPad - 16), y: ly + 13)
+
+                    // Hour labels (every 3rd)
+                    ForEach(pts.indices, id: \.self) { i in
+                        if i % 3 == 0 {
+                            Text(hourLabel(pts[i].time))
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .position(x: cp[i].0, y: h - bottomPad / 2)
+                        }
+                    }
+
+                    // Drag scrubber
+                    if let pos = dragPos, let temp = dragTemp {
+                        Path { p in
+                            p.move(to: CGPoint(x: pos.x, y: topPad))
+                            p.addLine(to: CGPoint(x: pos.x, y: topPad + ph))
+                        }
+                        .stroke(Color.white.opacity(0.5),
+                                style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+                        Circle().fill(Color.white).frame(width: 10, height: 10)
+                            .position(x: pos.x, y: pos.y)
+                        Circle().fill(Color.barrelRed).frame(width: 6, height: 6)
+                            .position(x: pos.x, y: pos.y)
+                        let bubbleX = min(max(pos.x, leftPad + 20), w - rightPad - 20)
+                        Text("\(Int(temp))°")
+                            .font(.system(size: 13, weight: .bold))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(.regularMaterial, in: Capsule())
+                            .position(x: bubbleX, y: pos.y - 22)
                     }
                 }
-
-                if let idx = hovIdx, idx < pts.count {
-                    let px = pts[idx].0; let py = pts[idx].1
-                    let temp = settings.temperature(displayPoints[idx].temperature)
-                    Path { p in p.move(to: CGPoint(x: px, y: topPad)); p.addLine(to: CGPoint(x: px, y: topPad + plotH)) }
-                        .stroke(Color.white.opacity(0.7), lineWidth: 5)
-
-                    Circle().fill(Color.barrelRed)
-                        .frame(width: 12, height: 12)
-                        .position(x: px, y: py)
-                    Circle()
-                        .fill(Color.white.opacity(0.7))
-                        .frame(width: 5, height: 5)
-                        .position(x: px, y: py)
-
-                    let bubbleX = min(max(px, 28), w - 28)
-                    Text("\(Int(temp.rounded()))°").font(.system(size: 13, weight: .bold))
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(.regularMaterial, in: Capsule()).position(x: bubbleX, y: py - 24)
-                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { dragX = $0.location.x }
+                        .onEnded   { _ in withAnimation(.easeOut(duration: 0.25)) { dragX = nil } }
+                )
             }
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { dragX = $0.location.x }
-                .onEnded { _ in withAnimation(.easeOut(duration: 0.3)) { dragX = nil } })
         }
     }
 
-    private func addCurve(to path: inout Path, pts: [(CGFloat, CGFloat)]) {
-        for i in 1..<pts.count {
-            let cp1 = CGPoint(x: (pts[i-1].0 + pts[i].0) / 2, y: pts[i-1].1)
-            let cp2 = CGPoint(x: (pts[i-1].0 + pts[i].0) / 2, y: pts[i].1)
-            path.addCurve(to: CGPoint(x: pts[i].0, y: pts[i].1), control1: cp1, control2: cp2)
+    private func catmullRomPath(into path: inout Path, pts: [(CGFloat, CGFloat)]) {
+        guard pts.count >= 2 else { return }
+        let ghost0 = CGPoint(x: 2*pts[0].0 - pts[1].0,           y: 2*pts[0].1 - pts[1].1)
+        let ghostN = CGPoint(x: 2*pts.last!.0 - pts[pts.count-2].0,
+                             y: 2*pts.last!.1 - pts[pts.count-2].1)
+        let ext: [CGPoint] = [ghost0] + pts.map { CGPoint(x: $0.0, y: $0.1) } + [ghostN]
+        let steps = 12
+        for i in 0..<(ext.count - 3) {
+            for s in 1...steps {
+                let t = CGFloat(s) / CGFloat(steps)
+                path.addLine(to: crPoint(ext[i], ext[i+1], ext[i+2], ext[i+3], t))
+            }
         }
     }
-    
+
+    private func crPoint(_ p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint, _ t: CGFloat) -> CGPoint {
+        let t2 = t*t, t3 = t2*t
+        return CGPoint(
+            x: 0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+            y: 0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
+        )
+    }
+
+    private func catmullRomY(pts: [(CGFloat, CGFloat)], i: Int, t: CGFloat) -> CGFloat {
+        let n = pts.count
+        let p0 = CGPoint(x: pts[max(0,i-1)].0,       y: pts[max(0,i-1)].1)
+        let p1 = CGPoint(x: pts[i].0,                 y: pts[i].1)
+        let p2 = CGPoint(x: pts[min(n-1,i+1)].0,     y: pts[min(n-1,i+1)].1)
+        let p3 = CGPoint(x: pts[min(n-1,i+2)].0,     y: pts[min(n-1,i+2)].1)
+        return crPoint(p0, p1, p2, p3, t).y
+    }
+
     private func hourLabel(_ d: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "ha"; return f.string(from: d).lowercased()
     }
