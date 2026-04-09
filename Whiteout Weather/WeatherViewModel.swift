@@ -117,6 +117,7 @@ final class WeatherViewModel {
             description:        cached.condition,
             windSpeed:          0,
             windGusts:          cached.windGusts ?? 0,
+            windSpeedInstant:   0,
             windDirection:      0,
             windDirectionLabel: "",
             humidity:           0,

@@ -41,8 +41,9 @@ struct DailyForecast: Identifiable {
 struct CurrentConditions {
     let temperature: Double
     let description: String     // NOAA condition label if available, otherwise WMO description
-    let windSpeed: Double
-    let windGusts: Double
+    let windSpeed: Double       // NOAA prose average, or OM fallback — shown in Wind row
+    let windGusts: Double       // NOAA prose gust, or OM fallback — shown in Gusts row
+    let windSpeedInstant: Double // OM current instantaneous — shown in compass center
     let windDirection: Double
     let windDirectionLabel: String
     let humidity: Double
@@ -201,6 +202,7 @@ actor WeatherRepository {
             description:        description,
             windSpeed:          noaaWindSpeed ?? c.windSpeed10m,
             windGusts:          noaaWindGust  ?? c.windGusts10m,
+            windSpeedInstant:   c.windSpeed10m,
             windDirection:      c.windDirection10m,
             windDirectionLabel: compassDirection(from: c.windDirection10m),
             humidity:           c.relativeHumidity2m,
