@@ -189,6 +189,14 @@ struct LocationPageView: View {
         .task(id: coordinate?.latitude) {
             triggerFetch()
         }
+        .onAppear {
+            // Fallback: if coordinate was already set before this view appeared
+            // (e.g. same GPS fix as a previous launch), the task won't re-fire
+            // because the id hasn't changed. onAppear catches this case.
+            if coordinate != nil && viewModel.daily.isEmpty {
+                triggerFetch()
+            }
+        }
 
         // Notify ContentView when background brightness changes so PageDotsView
         // can adapt its colors. Fire on both condition and time-of-day changes.
